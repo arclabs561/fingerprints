@@ -44,6 +44,12 @@ impl SupportLpParams {
 }
 
 #[cfg(feature = "vv-lp")]
+fn mass_eps(n: usize, eps_scale: f64) -> f64 {
+    let n = n.max(1) as f64;
+    (eps_scale / n.sqrt()).clamp(1e-6, 0.05)
+}
+
+#[cfg(feature = "vv-lp")]
 fn ln_factorial(i: usize) -> f64 {
     if i <= 1 {
         return 0.0;
@@ -90,10 +96,27 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: SupportLpParams) -> Result<(f
     support_bounds_lp_impl(fp, params)
 }
 
+/// Compute (lower, upper) bounds on Shannon entropy (nats) using the same VV-style histogram LP.
+///
+/// Objective is a linearized entropy over the histogram grid:
+/// \(H \approx -\sum_j x_j p_j \ln p_j\).
+///
+/// This is a **research scaffold**: bounds depend on grid/constraints and may be loose.
+pub fn entropy_bounds_lp(fp: &Fingerprint, params: SupportLpParams) -> Result<(f64, f64)> {
+    entropy_bounds_lp_impl(fp, params)
+}
+
 #[cfg(not(feature = "vv-lp"))]
 fn support_bounds_lp_impl(_fp: &Fingerprint, _params: SupportLpParams) -> Result<(f64, f64)> {
     Err(PropEstError::Invalid(
         "VV LP support bounds require feature `vv-lp`",
+    ))
+}
+
+#[cfg(not(feature = "vv-lp"))]
+fn entropy_bounds_lp_impl(_fp: &Fingerprint, _params: SupportLpParams) -> Result<(f64, f64)> {
+    Err(PropEstError::Invalid(
+        "VV LP entropy bounds require feature `vv-lp`",
     ))
 }
 
@@ -109,6 +132,7 @@ fn support_bounds_lp_impl(fp: &Fingerprint, params: SupportLpParams) -> Result<(
 
     let k = params.k.min(fp.f.len().saturating_sub(1)).max(1);
     let grid = grid_log_space(params.p_min, params.p_max, params.grid_size)?;
+    let eps_mass = mass_eps(n, params.eps_scale);
 
     // Precompute coefficients a_{i,j} = Poi(i; n p_j)
     let mut a = vec![vec![0.0f64; grid.len()]; k + 1];
@@ -127,18 +151,87 @@ fn support_bounds_lp_impl(fp: &Fingerprint, params: SupportLpParams) -> Result<(
             .map(|_| pb.add_var(1.0, (0.0, f64::INFINITY)))
             .collect();
 
-        // Mass constraint: Σ x_j p_j <= 1.
+        // Mass constraint: Σ x_j p_j ≈ 1.
         let mut mass = Vec::with_capacity(vars.len());
         for (v, &p) in vars.iter().zip(grid.iter()) {
             mass.push((*v, p));
         }
-        pb.add_constraint(mass, ComparisonOp::Le, 1.0);
+        pb.add_constraint(mass.clone(), ComparisonOp::Le, 1.0 + eps_mass);
+        pb.add_constraint(mass, ComparisonOp::Ge, (1.0 - eps_mass).max(0.0));
 
         // Observed support is a lower bound.
         let sup: Vec<_> = vars.iter().map(|&v| (v, 1.0)).collect();
         pb.add_constraint(sup, ComparisonOp::Ge, s_obs);
 
         // Fingerprint constraints for i=1..k: match within eps_i.
+        for i in 1..=k {
+            let fi = fp.f.get(i).copied().unwrap_or(0) as f64;
+            let eps_i = params.eps_scale * (fi.sqrt() + 1.0);
+            let row: Vec<_> = vars
+                .iter()
+                .enumerate()
+                .map(|(j, &v)| (v, a[i][j]))
+                .collect();
+            pb.add_constraint(row.clone(), ComparisonOp::Le, fi + eps_i);
+            pb.add_constraint(row, ComparisonOp::Ge, (fi - eps_i).max(0.0));
+        }
+
+        let sol = pb.solve().map_err(|_| PropEstError::Invalid("LP infeasible"))?;
+        Ok(sol.objective())
+    };
+
+    let lower = solve(OptimizationDirection::Minimize)?;
+    let upper = solve(OptimizationDirection::Maximize)?;
+    Ok((lower, upper))
+}
+
+#[cfg(feature = "vv-lp")]
+fn entropy_bounds_lp_impl(fp: &Fingerprint, params: SupportLpParams) -> Result<(f64, f64)> {
+    use minilp::{ComparisonOp, OptimizationDirection, Problem};
+
+    let n = fp.sample_size();
+    if n == 0 {
+        return Err(PropEstError::Invalid("sample size is zero"));
+    }
+    let s_obs = fp.observed_support() as f64;
+
+    let k = params.k.min(fp.f.len().saturating_sub(1)).max(1);
+    let grid = grid_log_space(params.p_min, params.p_max, params.grid_size)?;
+    let eps_mass = mass_eps(n, params.eps_scale);
+
+    // Precompute coefficients a_{i,j} = Poi(i; n p_j)
+    let mut a = vec![vec![0.0f64; grid.len()]; k + 1];
+    for i in 1..=k {
+        for (j, &p) in grid.iter().enumerate() {
+            let lambda = (n as f64) * p;
+            a[i][j] = poisson_pmf(i, lambda);
+        }
+    }
+
+    let ent_coeff: Vec<f64> = grid
+        .iter()
+        .map(|&p| if p > 0.0 { -(p * p.ln()) } else { 0.0 })
+        .collect();
+
+    let solve = |dir: OptimizationDirection| -> Result<f64> {
+        let mut pb = Problem::new(dir);
+        let vars: Vec<_> = (0..grid.len())
+            .map(|j| pb.add_var(ent_coeff[j], (0.0, f64::INFINITY)))
+            .collect();
+
+        // Mass: Σ x_j p_j ≈ 1.
+        let mut mass = Vec::with_capacity(vars.len());
+        for (v, &p) in vars.iter().zip(grid.iter()) {
+            mass.push((*v, p));
+        }
+        pb.add_constraint(mass.clone(), ComparisonOp::Le, 1.0 + eps_mass);
+        pb.add_constraint(mass, ComparisonOp::Ge, (1.0 - eps_mass).max(0.0));
+
+        // Observed support lower bound.
+        let sup: Vec<_> = vars.iter().map(|&v| (v, 1.0)).collect();
+        pb.add_constraint(sup, ComparisonOp::Ge, s_obs);
+
+        // Fingerprint constraints.
         for i in 1..=k {
             let fi = fp.f.get(i).copied().unwrap_or(0) as f64;
             let eps_i = params.eps_scale * (fi.sqrt() + 1.0);
@@ -172,6 +265,17 @@ mod tests {
         let params = SupportLpParams::default_for(&fp);
         let (lo, hi) = support_bounds_lp(&fp, params).unwrap();
         assert!(lo + 1e-9 >= fp.observed_support() as f64);
+        assert!(hi + 1e-9 >= lo);
+    }
+
+    #[test]
+    fn entropy_bounds_are_ordered_and_nonnegative() {
+        let counts = [5usize, 4, 3, 2, 2, 1, 1, 1];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let params = SupportLpParams::default_for(&fp);
+        let (lo, hi) = entropy_bounds_lp(&fp, params).unwrap();
+        assert!(lo.is_finite() && hi.is_finite());
+        assert!(lo >= -1e-9);
         assert!(hi + 1e-9 >= lo);
     }
 }
