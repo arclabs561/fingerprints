@@ -1,0 +1,19 @@
+[package]
+name = "propest"
+version = "0.1.0"
+edition = "2021"
+description = "Property estimation from samples: fingerprints, entropy/support estimators, and (future) unseen reconstruction"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/arclabs561/propest"
+homepage = "https://github.com/arclabs561/propest"
+documentation = "https://docs.rs/propest"
+keywords = ["statistics", "estimation", "entropy", "mutual-information", "unseen"]
+categories = ["algorithms", "science", "mathematics"]
+
+[dependencies]
+thiserror = { workspace = true }
+logp = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
