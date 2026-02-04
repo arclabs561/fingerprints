@@ -16,6 +16,9 @@
 use core::num::NonZeroUsize;
 use thiserror::Error;
 
+pub mod pml;
+pub mod vv;
+
 /// Errors for sample-based estimators.
 #[derive(Debug, Error)]
 pub enum PropEstError {
@@ -24,6 +27,9 @@ pub enum PropEstError {
 
     #[error("invalid input: {0}")]
     Invalid(&'static str),
+
+    #[error(transparent)]
+    Logp(#[from] logp::Error),
 }
 
 pub type Result<T> = core::result::Result<T, PropEstError>;

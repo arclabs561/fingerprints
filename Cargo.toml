@@ -11,9 +11,14 @@ keywords = ["statistics", "estimation", "entropy", "mutual-information", "unseen
 categories = ["algorithms", "science", "mathematics"]
 
 [dependencies]
-thiserror = { workspace = true }
-logp = { workspace = true }
+thiserror = "2.0"
+logp = "0.1.0"
+minilp = { version = "0.2", optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest = "1.9"
+
+[features]
+default = []
+vv-lp = ["dep:minilp"]
 
