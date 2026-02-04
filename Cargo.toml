@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/arclabs561/propest"
 homepage = "https://github.com/arclabs561/propest"
 documentation = "https://docs.rs/propest"
+readme = "README.md"
 keywords = ["statistics", "estimation", "entropy", "mutual-information", "unseen"]
 categories = ["algorithms", "science", "mathematics"]
 
@@ -21,4 +22,9 @@ proptest = "1.9"
 [features]
 default = []
 vv-lp = ["dep:minilp"]
+
+[[example]]
+name = "vv_bounds"
+path = "examples/vv_bounds.rs"
+required-features = ["vv-lp"]
 

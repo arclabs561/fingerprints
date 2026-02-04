@@ -10,6 +10,23 @@
 //! References (orientation):
 //! - Valiant & Valiant (2013/2017): “Estimating the Unseen…”
 //! - Orlitsky line: profile / PML estimators (future).
+//!
+//! ## Quick example
+//!
+//! ```rust
+//! use propest::{Fingerprint, entropy_miller_madow_nats, unseen_mass_good_turing, support_chao1};
+//!
+//! let counts = [3usize, 3, 2, 1, 1];
+//! let fp = Fingerprint::from_counts(counts).unwrap();
+//!
+//! let h_mm = entropy_miller_madow_nats(&fp);
+//! let p0 = unseen_mass_good_turing(&fp);
+//! let s_hat = support_chao1(&fp);
+//!
+//! assert!(h_mm >= 0.0);
+//! assert!((0.0..=1.0).contains(&p0));
+//! assert!(s_hat >= fp.observed_support() as f64);
+//! ```
 
 #![forbid(unsafe_code)]
 
