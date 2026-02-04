@@ -8,9 +8,12 @@ distributions; `propest` estimates those functionals from *samples* (fingerprint
 ## Scope (initial)
 
 - Fingerprint (counts-of-counts) utilities
-- Classical entropy estimators (plug-in, Miller–Madow)
-- Support-size / “distinct elements” helpers (basics)
+- Classical entropy estimators (plug-in, Miller–Madow, jackknife)
+- Coverage / unseen-mass helpers (Good–Turing)
+- Support-size (“distinct elements”) helpers (Chao1)
+- PML scaffolding for small supports (`pml` module)
 
-Planned:
-- Valiant–Valiant style unseen reconstruction (LP-based), behind an explicit feature gate.
+## Features
+
+- `vv-lp`: enables a minimal VV-style histogram LP (support-size bounds) via `minilp`.
 
