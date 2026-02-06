@@ -6,6 +6,8 @@ This crate lives “above” `logp`:
 
 - `logp`: information-theoretic functionals on *known* distributions (simplex vectors).
 - `propest`: estimators of those functionals from *samples* (counts / fingerprints / profiles).
+- `infogeom`: geometry-aware distances on *known* distributions (useful once you have an explicit
+  simplex vector you want to compare).
 
 The center of gravity is the **unseen regime**: finite samples, large/unknown support, and
 estimators with explicit bias/variance tradeoffs.
@@ -57,6 +59,9 @@ assert!(s_hat >= fp.observed_support() as f64);
 - **Coverage / support**:
   - `unseen_mass_good_turing` (unseen mass \( \hat p_0 \approx F_1/n \))
   - `support_chao1`
+- **Coverage baselines / toy problems** (`propest::coverage`):
+  - `german_tank_unbiased_*`: finite-support “max serial number” baseline (sampling without replacement) — see [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
+  - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines — see [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
 - **PML scaffolding** (`propest::pml`):
   - `best_uniform_support_size` (baseline family)
   - `profile_log_likelihood_small` (exact profile likelihood for small observed support)
@@ -70,10 +75,41 @@ assert!(s_hat >= fp.observed_support() as f64);
   - `Fingerprint` stores `F[i]` = number of symbols seen exactly `i` times; `F[0]` is unused.
 - **Units**:
   - entropy is in **nats** unless a `_bits` helper is used.
+- **Codelength**:
+  - `sample_codelen_plugin_*` turns per-symbol entropy into **total sample code length** (\(n\cdot H(\hat p)\)), which is a useful scalar for MDL-style comparisons.
 - **Estimator semantics**:
   - `*_plugin_*` treats the empirical histogram as the true distribution.
   - Bias corrections (Miller–Madow, jackknife) can overshoot in some regimes; treat as estimators,
     not identities.
+
+## How this composes with `infogeom`
+
+`propest` is mostly **label-invariant**: fingerprints/profiles forget which symbol was which, and
+the core estimators target **properties** (entropy, support size, unseen mass), not a fully labeled
+distribution.
+
+If you *do* have a fixed, meaningful category set (so coordinates align across samples), you can
+turn counts into an explicit simplex vector and then use `infogeom` to compare distributions with
+simplex-aware distances:
+
+```toml
+[dependencies]
+propest = "0.1"
+infogeom = "0.1"
+```
+
+```rust
+use propest::empirical_simplex_from_counts;
+
+let counts_a = [7usize, 2, 1];
+let counts_b = [1usize, 2, 7];
+
+let p = empirical_simplex_from_counts(&counts_a).unwrap();
+let q = empirical_simplex_from_counts(&counts_b).unwrap();
+
+let d = infogeom::rao_distance_categorical(&p, &q, 1e-12).unwrap();
+assert!(d >= 0.0);
+```
 
 ## Features
 

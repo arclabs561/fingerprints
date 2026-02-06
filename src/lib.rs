@@ -6,6 +6,7 @@
 //! Design intent:
 //! - Keep `logp` as the *definition* layer (entropy/divergence functionals on known distributions).
 //! - Put estimation policy here (bias correction, sample-size regimes, solver-backed methods).
+//! - Use `infogeom` when you have explicit simplex vectors and want geometry-aware distances.
 //!
 //! References (orientation):
 //! - Valiant & Valiant (2013/2017): “Estimating the Unseen…”
@@ -35,6 +36,7 @@ use thiserror::Error;
 
 pub mod pml;
 pub mod vv;
+pub mod coverage;
 
 /// Errors for sample-based estimators.
 #[derive(Debug, Error)]
@@ -284,6 +286,29 @@ pub fn entropy_miller_madow_bits(fp: &Fingerprint) -> f64 {
 #[must_use]
 pub fn entropy_jackknife_bits(fp: &Fingerprint) -> f64 {
     entropy_jackknife_nats(fp) / logp::LN_2
+}
+
+/// Plug-in **sample code length** (nats) for the observed sample.
+///
+/// Concretely: if you encode each observation using the plug-in (empirical) model \(\hat p\),
+/// the expected per-symbol code length is \(H(\hat p)\) (in nats). For a sample of size `n`,
+/// the total codelength is approximately:
+///
+/// \[
+/// L \approx n \cdot H(\hat p)
+/// \]
+///
+/// This is a useful *scalar* for MDL-style comparisons (representation/model selection) and for
+/// turning “entropy” into an auditable quantity measured in total nats.
+#[must_use]
+pub fn sample_codelen_plugin_nats(fp: &Fingerprint) -> f64 {
+    (fp.sample_size() as f64) * entropy_plugin_nats(fp)
+}
+
+/// Plug-in sample code length in bits.
+#[must_use]
+pub fn sample_codelen_plugin_bits(fp: &Fingerprint) -> f64 {
+    sample_codelen_plugin_nats(fp) / logp::LN_2
 }
 
 #[cfg(test)]
