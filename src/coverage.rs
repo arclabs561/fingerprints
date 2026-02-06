@@ -1,6 +1,6 @@
 //! Coverage / support heuristics (classical baselines).
 //!
-//! These are “orientation tools” that connect the `propest` unseen/coverage story to classical
+//! These are “orientation tools” that connect the `unseen` unseen/coverage story to classical
 //! toy problems:
 //! - German tank: estimate a finite support maximum from a sample without replacement.
 //! - Coupon collector: expected time to cover all types under uniform sampling with replacement.

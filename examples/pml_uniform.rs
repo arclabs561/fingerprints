@@ -1,4 +1,4 @@
-use propest::pml::best_uniform_support_size;
+use unseen::pml::best_uniform_support_size;
 
 fn main() {
     // Observed per-symbol counts (unlabeled).
