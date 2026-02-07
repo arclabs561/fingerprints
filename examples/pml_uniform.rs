@@ -1,4 +1,4 @@
-use unseen::pml::best_uniform_support_size;
+use fingerprints::pml::best_uniform_support_size;
 
 fn main() {
     // Observed per-symbol counts (unlabeled).

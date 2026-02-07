@@ -1,11 +1,11 @@
-# unseen
+# fingerprints
 
 Property estimation from samples.
 
 This crate lives “above” `logp`:
 
 - `logp`: information-theoretic functionals on *known* distributions (simplex vectors).
-- `unseen`: estimators of those functionals from *samples* (counts / fingerprints / profiles).
+- `fingerprints`: estimators of those functionals from *samples* (counts / fingerprints / profiles).
 - `infogeom`: geometry-aware distances on *known* distributions (useful once you have an explicit
   simplex vector you want to compare).
 
@@ -18,13 +18,13 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-unseen = "0.1"
+fingerprints = "0.1"
 ```
 
 Estimate a few basic quantities from per-symbol counts:
 
 ```rust
-use unseen::{
+use fingerprints::{
     Fingerprint,
     entropy_plugin_nats,
     entropy_miller_madow_nats,
@@ -59,13 +59,13 @@ assert!(s_hat >= fp.observed_support() as f64);
 - **Coverage / support**:
   - `unseen_mass_good_turing` (unseen mass \( \hat p_0 \approx F_1/n \))
   - `support_chao1`
-- **Coverage baselines / toy problems** (`unseen::coverage`):
+- **Coverage baselines / toy problems** (`fingerprints::coverage`):
   - `german_tank_unbiased_*`: finite-support “max serial number” baseline (sampling without replacement) — see [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
   - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines — see [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
-- **PML scaffolding** (`unseen::pml`):
+- **PML scaffolding** (`fingerprints::pml`):
   - `best_uniform_support_size` (baseline family)
   - `profile_log_likelihood_small` (exact profile likelihood for small observed support)
-- **VV-style LP scaffold** (`unseen::vv`, feature-gated):
+- **VV-style LP scaffold** (`fingerprints::vv`, feature-gated):
   - `support_bounds_lp`, `entropy_bounds_lp`
 
 ## Invariants and conventions
@@ -84,7 +84,7 @@ assert!(s_hat >= fp.observed_support() as f64);
 
 ## How this composes with `infogeom`
 
-`unseen` is mostly **label-invariant**: fingerprints/profiles forget which symbol was which, and
+`fingerprints` is mostly **label-invariant**: fingerprints/profiles forget which symbol was which, and
 the core estimators target **properties** (entropy, support size, unseen mass), not a fully labeled
 distribution.
 
@@ -94,12 +94,12 @@ simplex-aware distances:
 
 ```toml
 [dependencies]
-unseen = "0.1"
+fingerprints = "0.1"
 infogeom = "0.1"
 ```
 
 ```rust
-use unseen::empirical_simplex_from_counts;
+use fingerprints::empirical_simplex_from_counts;
 
 let counts_a = [7usize, 2, 1];
 let counts_b = [1usize, 2, 7];

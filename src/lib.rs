@@ -1,4 +1,4 @@
-//! `unseen`: property estimation from samples (fingerprints/profiles).
+//! `fingerprints`: property estimation from samples (fingerprints/profiles).
 //!
 //! This crate is for the “unseen regime”: estimating properties of an unknown discrete distribution
 //! from a sample when the support may be large and the empirical plug-in estimator is biased.
@@ -15,7 +15,7 @@
 //! ## Quick example
 //!
 //! ```rust
-//! use unseen::{Fingerprint, entropy_miller_madow_nats, unseen_mass_good_turing, support_chao1};
+//! use fingerprints::{Fingerprint, entropy_miller_madow_nats, unseen_mass_good_turing, support_chao1};
 //!
 //! let counts = [3usize, 3, 2, 1, 1];
 //! let fp = Fingerprint::from_counts(counts).unwrap();

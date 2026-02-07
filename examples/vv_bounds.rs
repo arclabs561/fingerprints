@@ -1,6 +1,6 @@
 fn main() {
-    use unseen::vv::{entropy_bounds_lp, support_bounds_lp, SupportLpParams};
-    use unseen::Fingerprint;
+    use fingerprints::vv::{entropy_bounds_lp, support_bounds_lp, SupportLpParams};
+    use fingerprints::Fingerprint;
 
     let counts = [5usize, 4, 3, 2, 2, 1, 1, 1];
     let fp = Fingerprint::from_counts(counts).unwrap();

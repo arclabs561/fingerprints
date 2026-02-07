@@ -1,4 +1,4 @@
-use unseen::{
+use fingerprints::{
     entropy_jackknife_nats, entropy_miller_madow_nats, entropy_plugin_nats, support_chao1,
     unseen_mass_good_turing, Fingerprint,
 };
