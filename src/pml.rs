@@ -66,13 +66,15 @@ pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> 
     if counts.is_empty() {
         return Err(PropEstError::EmptySample);
     }
-    if counts.iter().any(|&c| c == 0) {
+    if counts.contains(&0) {
         return Err(PropEstError::Invalid("counts must be positive"));
     }
 
     let m = counts.len();
     if support_size < m {
-        return Err(PropEstError::Invalid("support_size must be >= observed distinct count"));
+        return Err(PropEstError::Invalid(
+            "support_size must be >= observed distinct count",
+        ));
     }
     let n: usize = counts.iter().sum();
     if n == 0 {
@@ -88,14 +90,16 @@ pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> 
 }
 
 /// Choose the `support_size` in `[m, s_max]` maximizing the uniform-family profile likelihood.
-#[must_use]
+#[must_use = "returns (best_support_size, log_likelihood)"]
 pub fn best_uniform_support_size(counts: &[usize], s_max: usize) -> Result<(usize, f64)> {
     if counts.is_empty() {
         return Err(PropEstError::EmptySample);
     }
     let m = counts.len();
     if s_max < m {
-        return Err(PropEstError::Invalid("s_max must be >= observed distinct count"));
+        return Err(PropEstError::Invalid(
+            "s_max must be >= observed distinct count",
+        ));
     }
     let mut best_s = m;
     let mut best_ll = f64::NEG_INFINITY;
@@ -110,10 +114,7 @@ pub fn best_uniform_support_size(counts: &[usize], s_max: usize) -> Result<(usiz
 }
 
 fn log_sum_exp(xs: &[f64]) -> f64 {
-    let m = xs
-        .iter()
-        .copied()
-        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
+    let m = xs.iter().copied().fold(f64::NEG_INFINITY, |a, b| a.max(b));
     if !m.is_finite() {
         return m;
     }
@@ -135,12 +136,16 @@ pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -
         return Err(PropEstError::EmptySample);
     }
     if counts.len() != probs.len() {
-        return Err(PropEstError::Invalid("counts and probs must have same length"));
+        return Err(PropEstError::Invalid(
+            "counts and probs must have same length",
+        ));
     }
     if counts.len() > 20 {
-        return Err(PropEstError::Invalid("observed support too large for exact profile likelihood"));
+        return Err(PropEstError::Invalid(
+            "observed support too large for exact profile likelihood",
+        ));
     }
-    if counts.iter().any(|&c| c == 0) {
+    if counts.contains(&0) {
         return Err(PropEstError::Invalid("counts must be positive"));
     }
     logp::validate_simplex(probs, tol)?;
@@ -154,7 +159,11 @@ pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -
         let c_f = c as f64;
         for (j, &p) in probs.iter().enumerate() {
             // p can be 0; handle ln(0) -> -inf, exp -> 0.
-            log_a[i][j] = if p > 0.0 { c_f * p.ln() } else { f64::NEG_INFINITY };
+            log_a[i][j] = if p > 0.0 {
+                c_f * p.ln()
+            } else {
+                f64::NEG_INFINITY
+            };
         }
     }
 
@@ -163,16 +172,19 @@ pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -
     let full = 1usize << m;
     for mask in 1..full {
         let bits = mask.count_ones() as usize;
-        let sign = if (m - bits) % 2 == 0 { 1.0 } else { -1.0 };
+        let sign = if (m - bits).is_multiple_of(2) {
+            1.0
+        } else {
+            -1.0
+        };
 
         let mut prod_ln = 0.0f64;
-        for i in 0..m {
+        for row in &log_a {
             // log(sum_{j in mask} exp(log_a[i][j]))
-            let mut row_terms = Vec::new();
-            row_terms.reserve(bits);
-            for j in 0..m {
-                if (mask >> j) & 1 == 1 {
-                    row_terms.push(log_a[i][j]);
+            let mut row_terms = Vec::with_capacity(bits);
+            for (j, &val) in row.iter().enumerate() {
+                if ((mask >> j) & 1) == 1 {
+                    row_terms.push(val);
                 }
             }
             let row_ln = log_sum_exp(&row_terms);
@@ -192,7 +204,7 @@ pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -
         perm = tmp;
     }
 
-    if !(perm > 0.0) {
+    if perm.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Ok(f64::NEG_INFINITY);
     }
 
@@ -235,13 +247,7 @@ mod tests {
         let mut idx: Vec<usize> = (0..m).collect();
         let mut sum = 0.0f64;
 
-        fn heap(
-            k: usize,
-            idx: &mut [usize],
-            probs: &[f64],
-            counts: &[usize],
-            sum: &mut f64,
-        ) {
+        fn heap(k: usize, idx: &mut [usize], probs: &[f64], counts: &[usize], sum: &mut f64) {
             if k == 1 {
                 let mut prod = 1.0;
                 for (i, &j) in idx.iter().enumerate() {
@@ -252,7 +258,7 @@ mod tests {
             }
             heap(k - 1, idx, probs, counts, sum);
             for i in 0..(k - 1) {
-                if k % 2 == 0 {
+                if k.is_multiple_of(2) {
                     idx.swap(i, k - 1);
                 } else {
                     idx.swap(0, k - 1);
@@ -296,4 +302,3 @@ mod tests {
         assert!((ll_rev - ll_brute).abs() < 1e-9);
     }
 }
-

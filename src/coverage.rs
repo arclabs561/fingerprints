@@ -31,8 +31,11 @@ pub fn german_tank_unbiased_1_indexed(max_seen: u64, sample_size: u64) -> Result
 ///
 /// If the observed maximum is `m0` (0-indexed), convert to 1-indexed by `m=m0+1` and return
 /// an estimate of the **support size** `(N+1)`.
-pub fn german_tank_unbiased_support_size_0_indexed(max_seen_0: u64, sample_size: u64) -> Result<f64> {
-    german_tank_unbiased_1_indexed(max_seen_0 + 1, sample_size).map(|n_hat| n_hat)
+pub fn german_tank_unbiased_support_size_0_indexed(
+    max_seen_0: u64,
+    sample_size: u64,
+) -> Result<f64> {
+    german_tank_unbiased_1_indexed(max_seen_0 + 1, sample_size)
 }
 
 /// Expected draws to collect all `n` coupons (uniform, with replacement): `n * H_n`.
@@ -84,4 +87,3 @@ mod tests {
         }
     }
 }
-

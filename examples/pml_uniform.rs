@@ -10,6 +10,8 @@ fn main() {
     assert!(s_hat >= m);
     assert!(ll.is_finite());
 
-    println!("best_uniform_support_size: Ŝ={} (observed distinct m={}) ll={:.4}", s_hat, m, ll);
+    println!(
+        "best_uniform_support_size: Ŝ={} (observed distinct m={}) ll={:.4}",
+        s_hat, m, ll
+    );
 }
-

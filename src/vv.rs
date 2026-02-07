@@ -176,7 +176,9 @@ fn support_bounds_lp_impl(fp: &Fingerprint, params: SupportLpParams) -> Result<(
             pb.add_constraint(row, ComparisonOp::Ge, (fi - eps_i).max(0.0));
         }
 
-        let sol = pb.solve().map_err(|_| PropEstError::Invalid("LP infeasible"))?;
+        let sol = pb
+            .solve()
+            .map_err(|_| PropEstError::Invalid("LP infeasible"))?;
         Ok(sol.objective())
     };
 
@@ -244,7 +246,9 @@ fn entropy_bounds_lp_impl(fp: &Fingerprint, params: SupportLpParams) -> Result<(
             pb.add_constraint(row, ComparisonOp::Ge, (fi - eps_i).max(0.0));
         }
 
-        let sol = pb.solve().map_err(|_| PropEstError::Invalid("LP infeasible"))?;
+        let sol = pb
+            .solve()
+            .map_err(|_| PropEstError::Invalid("LP infeasible"))?;
         Ok(sol.objective())
     };
 
@@ -279,4 +283,3 @@ mod tests {
         assert!(hi + 1e-9 >= lo);
     }
 }
-

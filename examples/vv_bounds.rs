@@ -15,4 +15,3 @@ fn main() {
     println!("VV LP support bounds: [{:.3}, {:.3}]", s_lo, s_hi);
     println!("VV LP entropy bounds (nats): [{:.6}, {:.6}]", h_lo, h_hi);
 }
-

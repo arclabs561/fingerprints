@@ -34,9 +34,9 @@
 use core::num::NonZeroUsize;
 use thiserror::Error;
 
+pub mod coverage;
 pub mod pml;
 pub mod vv;
-pub mod coverage;
 
 /// Errors for sample-based estimators.
 #[derive(Debug, Error)]
@@ -62,7 +62,10 @@ pub fn empirical_simplex_from_counts(counts: &[usize]) -> Result<Vec<f64>> {
     }
     let n: usize = counts.iter().sum();
     let n = NonZeroUsize::new(n).ok_or(PropEstError::Invalid("sum(counts) == 0"))?;
-    Ok(counts.iter().map(|&c| (c as f64) / (n.get() as f64)).collect())
+    Ok(counts
+        .iter()
+        .map(|&c| (c as f64) / (n.get() as f64))
+        .collect())
 }
 
 /// A fingerprint/profile: `F[i]` is the number of domain elements seen exactly `i` times.
@@ -384,4 +387,3 @@ mod tests {
         }
     }
 }
-

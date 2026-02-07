@@ -32,4 +32,3 @@ fn main() {
         s_hat
     );
 }
-
