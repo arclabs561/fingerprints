@@ -2,12 +2,12 @@
 name = "fingerprints"
 version = "0.1.0"
 edition = "2021"
-description = "Property estimation from samples: fingerprints, entropy/support estimators, and (future) unseen reconstruction"
+description = "Property estimation from samples: fingerprints, entropy/support estimators, and (future) support reconstruction"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/arclabs561/fingerprints"
 homepage = "https://github.com/arclabs561/fingerprints"
 readme = "README.md"
-keywords = ["statistics", "estimation", "entropy", "mutual-information", "unseen"]
+keywords = ["statistics", "estimation", "entropy", "mutual-information", "support"]
 categories = ["algorithms", "science", "mathematics"]
 
 [dependencies]
