@@ -29,6 +29,8 @@ use fingerprints::{
     entropy_plugin_nats,
     entropy_miller_madow_nats,
     entropy_jackknife_nats,
+    entropy_pitman_yor_nats,
+    pitman_yor_params_hat,
     unseen_mass_good_turing,
     support_chao1,
 };
@@ -39,11 +41,15 @@ let fp = Fingerprint::from_counts(counts).unwrap();
 let h_plugin = entropy_plugin_nats(&fp);
 let h_mm = entropy_miller_madow_nats(&fp);
 let h_jk = entropy_jackknife_nats(&fp);
+let h_py = entropy_pitman_yor_nats(&fp);
+let py = pitman_yor_params_hat(&fp);
 let p_unseen = unseen_mass_good_turing(&fp);
 let s_hat = support_chao1(&fp);
 
 assert!(h_plugin >= 0.0);
 assert!(h_mm >= h_plugin);
+assert!(h_py.is_finite() && h_py >= 0.0);
+assert!((0.0..1.0).contains(&py.d));
 assert!((0.0..=1.0).contains(&p_unseen));
 assert!(s_hat >= fp.observed_support() as f64);
 ```
@@ -53,9 +59,12 @@ assert!(s_hat >= fp.observed_support() as f64);
 - **Fingerprint abstraction**:
   - `Fingerprint::from_counts`, `sample_size`, `observed_support`, `singletons`, `doubletons`
 - **Entropy estimators (nats)**:
+  - `entropy_default_nats` (opinionated default; currently aliases Pitman–Yor)
   - `entropy_plugin_nats`
   - `entropy_miller_madow_nats`
   - `entropy_jackknife_nats`
+  - `entropy_pitman_yor_nats` (Pitman–Yor / DPYM; targets the unseen regime)
+  - `pitman_yor_params_hat` (inspect selected hyperparameters)
 - **Coverage / support**:
   - `unseen_mass_good_turing` (unseen mass \( \hat p_0 \approx F_1/n \))
   - `support_chao1`
@@ -113,18 +122,20 @@ assert!(d >= 0.0);
 
 ## Features
 
-- `vv-lp`: enables a minimal VV-style histogram LP via `minilp` (bounds on support and entropy).
+No feature flags. `fingerprints::vv`’s LP-backed bounds are available by default via `minilp`.
 
 ## Examples
 
 - `cargo run --example basic`
 - `cargo run --example pml_uniform`
-- `cargo run --example vv_bounds --features vv-lp`
+- `cargo run --example vv_bounds`
+- `cargo run --example pitman_yor_zipf`
+- `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1`
 
 ## Roadmap (near-term)
 
 - VV-style LP constraints that better track classical VV practice (grid policy, tighter moments).
-- PML beyond the uniform family (solver/heuristics; still behind clear feature gates).
+- PML beyond the uniform family (solver/heuristics; keep behind clear, opt-in APIs).
 - More properties beyond entropy/support (e.g. distance-to-uniformity proxies).
 
 ## License

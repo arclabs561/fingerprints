@@ -13,17 +13,8 @@ categories = ["algorithms", "science", "mathematics"]
 [dependencies]
 thiserror = "2.0"
 logp = "0.1.0"
-minilp = { version = "0.2", optional = true }
+minilp = "0.2"
 
 [dev-dependencies]
 proptest = "1.9"
-
-[features]
-default = []
-vv-lp = ["dep:minilp"]
-
-[[example]]
-name = "vv_bounds"
-path = "examples/vv_bounds.rs"
-required-features = ["vv-lp"]
 
