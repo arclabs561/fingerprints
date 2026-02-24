@@ -54,7 +54,7 @@ pub fn coupon_collector_expected_draws(n: u64) -> f64 {
 /// Expected number of distinct types observed after `t` uniform draws from `n` types.
 ///
 /// \[
-/// \mathbb{E}[D_t] = n\left(1 - \left(1 - \frac1n\right)^t\right).
+/// \mathbb{E}\[D_t\] = n\left(1 - \left(1 - \frac1n\right)^t\right).
 /// \]
 #[must_use]
 pub fn expected_distinct_uniform(n: u64, t: u64) -> f64 {

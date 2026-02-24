@@ -4,9 +4,8 @@
 //! from a sample when the support may be large and the empirical plug-in estimator is biased.
 //!
 //! Design intent:
-//! - Keep `logp` as the *definition* layer (entropy/divergence functionals on known distributions).
+//! - Rely on a *definition* layer for entropy/divergence on known distributions.
 //! - Put estimation policy here (bias correction, sample-size regimes, solver-backed methods).
-//! - Use `infogeom` when you have explicit simplex vectors and want geometry-aware distances.
 //!
 //! References (orientation):
 //! - Valiant & Valiant (2013/2017): “Estimating the Unseen…”
@@ -83,7 +82,7 @@ pub struct Fingerprint {
 impl Fingerprint {
     /// Compute fingerprint from per-symbol counts.
     ///
-    /// Example: counts = [5,3,1,1] => F[1]=2, F[3]=1, F[5]=1.
+    /// Example: counts = \[5,3,1,1\] => F\[1\]=2, F\[3\]=1, F\[5\]=1.
     pub fn from_counts<I>(counts: I) -> Result<Self>
     where
         I: IntoIterator<Item = usize>,
@@ -182,7 +181,7 @@ pub fn entropy_miller_madow_nats(fp: &Fingerprint) -> f64 {
 ///
 /// Bias reduction via:
 /// \[
-/// H_{JK} = n H_n - (n-1) \mathbb{E}[H_{n-1}]
+/// H_{JK} = n H_n - (n-1) \mathbb{E}\[H_{n-1}\]
 /// \]
 /// where \(H_{n-1}\) is the plug-in entropy of the sample with one observation removed uniformly
 /// at random.
