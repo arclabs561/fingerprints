@@ -55,7 +55,29 @@ pub type Result<T> = core::result::Result<T, PropEstError>;
 
 /// Convert per-symbol counts into an empirical distribution on the observed support.
 ///
-/// Returns a probability vector `p` with `p.len() == counts.len()` and `Σ p = 1`.
+/// Given counts \(c_1, \dots, c_m\) with sample size \(n = \sum_i c_i\), returns the
+/// maximum-likelihood probability vector:
+///
+/// \[
+/// \hat p_i = \frac{c_i}{n}, \quad i = 1, \dots, m.
+/// \]
+///
+/// The returned vector satisfies `p.len() == counts.len()` and \(\sum_i \hat p_i = 1\).
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty, or
+/// [`PropEstError::Invalid`] if all counts are zero.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::empirical_simplex_from_counts;
+///
+/// let p = empirical_simplex_from_counts(&[3, 1]).unwrap();
+/// assert!((p[0] - 0.75).abs() < 1e-12);
+/// assert!((p[1] - 0.25).abs() < 1e-12);
+/// ```
 pub fn empirical_simplex_from_counts(counts: &[usize]) -> Result<Vec<f64>> {
     if counts.is_empty() {
         return Err(PropEstError::EmptySample);
@@ -68,11 +90,33 @@ pub fn empirical_simplex_from_counts(counts: &[usize]) -> Result<Vec<f64>> {
         .collect())
 }
 
-/// A fingerprint/profile: `F[i]` is the number of domain elements seen exactly `i` times.
+/// A fingerprint (also called a "profile" or "pattern"): the sufficient statistic for
+/// symmetric properties of an unknown distribution.
+///
+/// `F[i]` is the number of domain elements that appear exactly `i` times in the sample.
 ///
 /// Conventions:
-/// - `F[0]` is unused and always 0 (we store from 0 for indexing convenience).
-/// - Sample size is `n = Σ_i i * F[i]`.
+/// - `F[0]` is unused and always 0 (stored from index 0 for convenience).
+/// - Sample size: \(n = \sum_{i \ge 1} i \cdot F_i\).
+/// - Observed support: \(S_{\text{obs}} = \sum_{i \ge 1} F_i\).
+///
+/// # References
+///
+/// - Orlitsky, Suresh, Wu (2016): "Optimal prediction of the number of unseen species"
+/// - Valiant & Valiant (2013/2017): "Estimating the Unseen"
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::Fingerprint;
+///
+/// // Four symbols with counts [5, 3, 1, 1]:
+/// let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+/// assert_eq!(fp.sample_size(), 10);
+/// assert_eq!(fp.observed_support(), 4);
+/// assert_eq!(fp.singletons(), 2);   // F_1 = 2 (two symbols seen once)
+/// assert_eq!(fp.doubletons(), 0);   // F_2 = 0
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fingerprint {
     /// Counts-of-counts (index = multiplicity).
@@ -80,9 +124,17 @@ pub struct Fingerprint {
 }
 
 impl Fingerprint {
-    /// Compute fingerprint from per-symbol counts.
+    /// Compute a fingerprint from per-symbol counts.
     ///
-    /// Example: counts = \[5,3,1,1\] => F\[1\]=2, F\[3\]=1, F\[5\]=1.
+    /// Each element of the input is the number of times a distinct symbol was observed.
+    /// Zero counts are silently ignored (they correspond to unseen symbols).
+    ///
+    /// Example: counts = \[5,3,1,1\] produces F\[1\]=2, F\[3\]=1, F\[5\]=1.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PropEstError::EmptySample`] if the iterator is empty, or
+    /// [`PropEstError::Invalid`] if all counts are zero.
     pub fn from_counts<I>(counts: I) -> Result<Self>
     where
         I: IntoIterator<Item = usize>,
@@ -105,7 +157,7 @@ impl Fingerprint {
         Ok(Self { f })
     }
 
-    /// Total sample size `n = Σ_i i * F[i]`.
+    /// Total sample size: \(n = \sum_{i \ge 1} i \cdot F_i\).
     #[must_use]
     pub fn sample_size(&self) -> usize {
         self.f
@@ -116,19 +168,24 @@ impl Fingerprint {
             .sum()
     }
 
-    /// Number of observed distinct elements: `S_obs = Σ_{i>=1} F[i]`.
+    /// Number of observed distinct elements: \(S_{\text{obs}} = \sum_{i \ge 1} F_i\).
     #[must_use]
     pub fn observed_support(&self) -> usize {
         self.f.iter().skip(1).sum()
     }
 
-    /// `F1`: the number of singletons.
+    /// \(F_1\): the number of singletons (symbols seen exactly once).
+    ///
+    /// Singletons are the primary driver of Good--Turing coverage correction and Chao1
+    /// support estimation.
     #[must_use]
     pub fn singletons(&self) -> usize {
         self.f.get(1).copied().unwrap_or(0)
     }
 
-    /// `F2`: the number of doubletons.
+    /// \(F_2\): the number of doubletons (symbols seen exactly twice).
+    ///
+    /// Doubletons appear in the denominator of the Chao1 estimator.
     #[must_use]
     pub fn doubletons(&self) -> usize {
         self.f.get(2).copied().unwrap_or(0)
@@ -137,7 +194,24 @@ impl Fingerprint {
 
 /// Plug-in (empirical) entropy estimator (nats) from a fingerprint.
 ///
-/// This treats the observed histogram as if it were the true distribution.
+/// Treats the observed histogram as the true distribution and computes:
+///
+/// \[
+/// \hat H_{\text{plug}} = -\sum_{i \ge 1} F_i \cdot \frac{i}{n} \ln\!\left(\frac{i}{n}\right)
+/// \]
+///
+/// where \(n\) is the sample size. This is the maximum-likelihood entropy estimator.
+/// It is **negatively biased**: \(\mathbb{E}[\hat H_{\text{plug}}] \le H(p)\) for any \(p\).
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, entropy_plugin_nats};
+///
+/// let fp = Fingerprint::from_counts([4, 4]).unwrap();
+/// // Uniform over 2 symbols => H = ln(2).
+/// assert!((entropy_plugin_nats(&fp) - 2.0_f64.ln()).abs() < 1e-12);
+/// ```
 #[must_use]
 pub fn entropy_plugin_nats(fp: &Fingerprint) -> f64 {
     let n = fp.sample_size() as f64;
@@ -158,15 +232,50 @@ pub fn entropy_plugin_nats(fp: &Fingerprint) -> f64 {
 
 /// Plug-in (empirical) entropy estimator (nats) from per-symbol counts.
 ///
-/// This is a convenience wrapper that routes through `logp`'s entropy implementation.
+/// Convenience wrapper: builds the empirical simplex from `counts` and delegates to
+/// `logp::entropy_unchecked`. Equivalent to [`entropy_plugin_nats`] applied to the
+/// fingerprint derived from the same counts.
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::entropy_plugin_nats_from_counts;
+///
+/// let h = entropy_plugin_nats_from_counts(&[3, 3]).unwrap();
+/// assert!((h - 2.0_f64.ln()).abs() < 1e-12);
+/// ```
 pub fn entropy_plugin_nats_from_counts(counts: &[usize]) -> Result<f64> {
     let p = empirical_simplex_from_counts(counts)?;
     Ok(logp::entropy_unchecked(&p))
 }
 
-/// Miller–Madow bias-corrected entropy estimator (nats).
+/// Miller--Madow bias-corrected entropy estimator (nats).
 ///
-/// Classical correction: H_MM = H_plugin + (S_obs - 1)/(2n).
+/// Applies a first-order bias correction to the plug-in estimator:
+///
+/// \[
+/// \hat H_{\text{MM}} = \hat H_{\text{plug}} + \frac{S_{\text{obs}} - 1}{2n}
+/// \]
+///
+/// where \(S_{\text{obs}}\) is the observed support size. The correction term
+/// compensates for the leading \(O(1/n)\) negative bias of the plug-in estimator.
+///
+/// # References
+///
+/// - Miller (1955), "Note on the bias of information estimates"
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, entropy_miller_madow_nats, entropy_plugin_nats};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+/// assert!(entropy_miller_madow_nats(&fp) >= entropy_plugin_nats(&fp));
+/// ```
 #[must_use]
 pub fn entropy_miller_madow_nats(fp: &Fingerprint) -> f64 {
     let n = fp.sample_size() as f64;
@@ -238,14 +347,52 @@ pub fn entropy_jackknife_nats(fp: &Fingerprint) -> f64 {
 }
 
 /// Jackknife (delete-1) entropy estimator (nats) from per-symbol counts.
+///
+/// Convenience wrapper: builds a [`Fingerprint`] from `counts` and delegates to
+/// [`entropy_jackknife_nats`].
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::entropy_jackknife_nats_from_counts;
+///
+/// let h = entropy_jackknife_nats_from_counts(&[5, 3, 2]).unwrap();
+/// assert!(h >= 0.0);
+/// ```
 pub fn entropy_jackknife_nats_from_counts(counts: &[usize]) -> Result<f64> {
     let fp = Fingerprint::from_counts(counts.iter().copied())?;
     Ok(entropy_jackknife_nats(&fp))
 }
 
-/// Good–Turing coverage estimate: the estimated **unseen probability mass**.
+/// Good--Turing coverage estimate: the estimated **unseen probability mass**.
 ///
-/// Classical estimate: \(\hat p_0 \approx F_1 / n\).
+/// Classical estimate:
+///
+/// \[
+/// \hat p_0 = \frac{F_1}{n}
+/// \]
+///
+/// where \(F_1\) is the singleton count and \(n\) is the sample size. The result is
+/// clamped to \([0, 1]\). When \(F_1 = 0\), no unseen mass is estimated.
+///
+/// # References
+///
+/// - Good (1953), "The population frequencies of species and the estimation of population parameters"
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, unseen_mass_good_turing};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+/// let p0 = unseen_mass_good_turing(&fp);
+/// // F_1 = 2, n = 10, so p0 = 0.2.
+/// assert!((p0 - 0.2).abs() < 1e-12);
+/// ```
 #[must_use]
 pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
     let n = fp.sample_size() as f64;
@@ -255,11 +402,34 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
     (fp.singletons() as f64 / n).clamp(0.0, 1.0)
 }
 
-/// Chao1 support-size estimator from the fingerprint.
+/// Chao1 lower-bound estimator of the true support size.
 ///
-/// \(\hat S = S_{obs} + \frac{F_1^2}{2F_2}\).
-/// If \(F_2 = 0\), use the usual bias-corrected fallback:
-/// \(\hat S = S_{obs} + \frac{F_1(F_1-1)}{2}\).
+/// \[
+/// \hat S = S_{\text{obs}} + \frac{F_1^2}{2 F_2}
+/// \]
+///
+/// If \(F_2 = 0\), the bias-corrected fallback is used:
+///
+/// \[
+/// \hat S = S_{\text{obs}} + \frac{F_1(F_1 - 1)}{2}
+/// \]
+///
+/// The estimator satisfies \(\hat S \ge S_{\text{obs}}\). When \(F_1 = 0\) (no singletons),
+/// the estimate equals \(S_{\text{obs}}\) (no unseen species are predicted).
+///
+/// # References
+///
+/// - Chao (1984), "Nonparametric estimation of the number of classes in a population"
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, support_chao1};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+/// let s_hat = support_chao1(&fp);
+/// assert!(s_hat >= fp.observed_support() as f64);
+/// ```
 #[must_use]
 pub fn support_chao1(fp: &Fingerprint) -> f64 {
     let s_obs = fp.observed_support() as f64;
@@ -579,20 +749,44 @@ pub fn pitman_yor_params_hat(fp: &Fingerprint) -> PitmanYorParams {
     PitmanYorParams { d, alpha }
 }
 
-/// Pitman–Yor entropy estimator (nats) from a fingerprint.
+/// Pitman--Yor entropy estimator (nats) from a fingerprint.
 ///
-/// This implements the estimator described in:
-/// - Takato Hashino & Koji Tsukuda (2026), “Estimating the Shannon Entropy Using the Pitman–Yor Process”.
+/// Implements the estimator described in:
+/// - Takato Hashino & Koji Tsukuda (2026), “Estimating the Shannon Entropy Using the Pitman--Yor Process”.
 ///
-/// High-level: approximate the unknown population distribution by the DPYM predictive distribution `q`,
-/// including an explicit “unseen mass” bucket, and return `H(q)`.
+/// The method approximates the unknown population distribution by the DPYM predictive
+/// distribution \(q\), including an explicit “unseen mass” bucket, and returns \(H(q)\).
+/// Parameters \((d, \alpha)\) are selected by minimizing a cross-entropy upper bound
+/// (see [`pitman_yor_params_hat`]).
+///
+/// When there are no singletons (\(F_1 = 0\)), the estimator reduces to the plug-in
+/// estimator (no unseen-mass correction is applied).
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, entropy_pitman_yor_nats, entropy_plugin_nats};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+/// let h_py = entropy_pitman_yor_nats(&fp);
+/// let h_plug = entropy_plugin_nats(&fp);
+/// // PY corrects upward when singletons are present.
+/// assert!(h_py >= h_plug - 1e-12);
+/// ```
 #[must_use]
 pub fn entropy_pitman_yor_nats(fp: &Fingerprint) -> f64 {
     let params = pitman_yor_params_hat(fp);
     entropy_dpym_nats(fp, params.d, params.alpha)
 }
 
-/// Pitman–Yor entropy estimator (nats) from per-symbol counts.
+/// Pitman--Yor entropy estimator (nats) from per-symbol counts.
+///
+/// Convenience wrapper: builds a [`Fingerprint`] and delegates to
+/// [`entropy_pitman_yor_nats`].
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
 pub fn entropy_pitman_yor_nats_from_counts(counts: &[usize]) -> Result<f64> {
     let fp = Fingerprint::from_counts(counts.iter().copied())?;
     Ok(entropy_pitman_yor_nats(&fp))
@@ -600,53 +794,106 @@ pub fn entropy_pitman_yor_nats_from_counts(counts: &[usize]) -> Result<f64> {
 
 /// Opinionated default entropy estimator (nats).
 ///
-/// This is a single-call “good default” for the **unseen regime**:
-/// - Uses the Pitman–Yor / DPYM estimator when there are singletons.
+/// A single-call “good default” for the **unseen regime**:
+/// - Uses the Pitman--Yor / DPYM estimator when singletons are present.
 /// - Reduces to the plug-in estimator when there are no singletons.
+///
+/// Currently delegates to [`entropy_pitman_yor_nats`]. The routing policy may
+/// evolve in future versions as new estimators are added.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, entropy_default_nats};
+///
+/// let fp = Fingerprint::from_counts([10, 8, 5, 3, 1]).unwrap();
+/// let h = entropy_default_nats(&fp);
+/// assert!(h.is_finite() && h >= 0.0);
+/// ```
 #[must_use]
 pub fn entropy_default_nats(fp: &Fingerprint) -> f64 {
     entropy_pitman_yor_nats(fp)
 }
 
 /// Opinionated default entropy estimator (nats) from per-symbol counts.
+///
+/// Convenience wrapper: builds a [`Fingerprint`] and delegates to
+/// [`entropy_default_nats`].
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
 pub fn entropy_default_nats_from_counts(counts: &[usize]) -> Result<f64> {
     entropy_pitman_yor_nats_from_counts(counts)
 }
 
-/// A very small helper: entropy in bits for convenience.
+/// Plug-in entropy estimator in **bits** (\(\log_2\)).
+///
+/// Equivalent to `entropy_plugin_nats(fp) / ln(2)`.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, entropy_plugin_bits};
+///
+/// let fp = Fingerprint::from_counts([4, 4]).unwrap();
+/// assert!((entropy_plugin_bits(&fp) - 1.0).abs() < 1e-12);
+/// ```
 #[must_use]
 pub fn entropy_plugin_bits(fp: &Fingerprint) -> f64 {
     entropy_plugin_nats(fp) / logp::LN_2
 }
 
+/// Miller--Madow bias-corrected entropy estimator in **bits**.
+///
+/// Equivalent to `entropy_miller_madow_nats(fp) / ln(2)`.
 #[must_use]
 pub fn entropy_miller_madow_bits(fp: &Fingerprint) -> f64 {
     entropy_miller_madow_nats(fp) / logp::LN_2
 }
 
+/// Jackknife (delete-1) entropy estimator in **bits**.
+///
+/// Equivalent to `entropy_jackknife_nats(fp) / ln(2)`.
 #[must_use]
 pub fn entropy_jackknife_bits(fp: &Fingerprint) -> f64 {
     entropy_jackknife_nats(fp) / logp::LN_2
 }
 
-/// Pitman–Yor entropy estimator (bits).
+/// Pitman--Yor entropy estimator in **bits**.
+///
+/// Equivalent to `entropy_pitman_yor_nats(fp) / ln(2)`.
 #[must_use]
 pub fn entropy_pitman_yor_bits(fp: &Fingerprint) -> f64 {
     entropy_pitman_yor_nats(fp) / logp::LN_2
 }
 
-/// Pitman–Yor entropy estimator (bits) from per-symbol counts.
+/// Pitman--Yor entropy estimator (bits) from per-symbol counts.
+///
+/// Convenience wrapper: equivalent to `entropy_pitman_yor_nats_from_counts(counts)? / ln(2)`.
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
 pub fn entropy_pitman_yor_bits_from_counts(counts: &[usize]) -> Result<f64> {
     Ok(entropy_pitman_yor_nats_from_counts(counts)? / logp::LN_2)
 }
 
-/// Opinionated default entropy estimator (bits).
+/// Opinionated default entropy estimator in **bits**.
+///
+/// Equivalent to `entropy_default_nats(fp) / ln(2)`.
 #[must_use]
 pub fn entropy_default_bits(fp: &Fingerprint) -> f64 {
     entropy_default_nats(fp) / logp::LN_2
 }
 
 /// Opinionated default entropy estimator (bits) from per-symbol counts.
+///
+/// Convenience wrapper: equivalent to `entropy_default_nats_from_counts(counts)? / ln(2)`.
+///
+/// # Errors
+///
+/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
 pub fn entropy_default_bits_from_counts(counts: &[usize]) -> Result<f64> {
     Ok(entropy_default_nats_from_counts(counts)? / logp::LN_2)
 }
@@ -668,7 +915,9 @@ pub fn sample_codelen_plugin_nats(fp: &Fingerprint) -> f64 {
     (fp.sample_size() as f64) * entropy_plugin_nats(fp)
 }
 
-/// Plug-in sample code length in bits.
+/// Plug-in sample code length in **bits**.
+///
+/// Equivalent to `sample_codelen_plugin_nats(fp) / ln(2)`.
 #[must_use]
 pub fn sample_codelen_plugin_bits(fp: &Fingerprint) -> f64 {
     sample_codelen_plugin_nats(fp) / logp::LN_2
@@ -936,5 +1185,190 @@ mod tests {
         let h = entropy_mpy_nats(d, alpha);
         assert!(h.is_finite());
         assert!(h >= 0.0);
+    }
+
+    // ---- Edge case tests ----
+
+    #[test]
+    fn single_symbol_distribution() {
+        // A single symbol seen many times: zero entropy, no unseen mass, support = 1.
+        let fp = Fingerprint::from_counts([100]).unwrap();
+        assert_eq!(fp.sample_size(), 100);
+        assert_eq!(fp.observed_support(), 1);
+        assert_eq!(fp.singletons(), 0);
+        assert_eq!(fp.doubletons(), 0);
+
+        assert!((entropy_plugin_nats(&fp)).abs() < 1e-12);
+        assert!((entropy_miller_madow_nats(&fp)).abs() < 1e-12);
+        assert!((entropy_jackknife_nats(&fp)).abs() < 1e-12);
+        assert!((entropy_pitman_yor_nats(&fp)).abs() < 1e-12);
+        assert!((unseen_mass_good_turing(&fp)).abs() < 1e-12);
+        assert!((support_chao1(&fp) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn from_counts_rejects_empty() {
+        let result = Fingerprint::from_counts(Vec::<usize>::new());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_counts_rejects_all_zeros() {
+        let result = Fingerprint::from_counts(vec![0, 0, 0]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn empirical_simplex_rejects_empty() {
+        let result = empirical_simplex_from_counts(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn empirical_simplex_rejects_all_zeros() {
+        let result = empirical_simplex_from_counts(&[0, 0]);
+        assert!(result.is_err());
+    }
+
+    // ---- Cross-module: fingerprint -> estimators consistency ----
+
+    #[test]
+    fn all_estimators_consistent_on_uniform() {
+        // Uniform distribution over 4 symbols, each seen 10 times.
+        let counts = [10usize, 10, 10, 10];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let h_true = 4.0_f64.ln();
+
+        // Plugin is exact for uniform.
+        assert!((entropy_plugin_nats(&fp) - h_true).abs() < 1e-12);
+        // MM adds a positive correction.
+        assert!(entropy_miller_madow_nats(&fp) >= h_true - 1e-12);
+        // All estimators should be close to the true value for large n.
+        assert!((entropy_jackknife_nats(&fp) - h_true).abs() < 0.1);
+        // No singletons => PY = plugin.
+        assert!((entropy_pitman_yor_nats(&fp) - h_true).abs() < 1e-12);
+
+        // Bits conversion consistency.
+        let h_bits_nats = entropy_plugin_nats(&fp) / logp::LN_2;
+        assert!((entropy_plugin_bits(&fp) - h_bits_nats).abs() < 1e-12);
+    }
+
+    #[test]
+    fn estimators_ordered_on_heavy_singletons() {
+        // Many singletons: unseen regime. PY should correct upward.
+        let counts = [10usize, 5, 3, 1, 1, 1, 1, 1, 1, 1];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let h_plug = entropy_plugin_nats(&fp);
+        let h_mm = entropy_miller_madow_nats(&fp);
+        let h_py = entropy_pitman_yor_nats(&fp);
+
+        assert!(h_mm >= h_plug - 1e-12, "MM >= plugin");
+        // PY should be >= plugin in the unseen regime (it models unseen mass).
+        assert!(h_py >= h_plug - 1e-12, "PY >= plugin");
+    }
+
+    #[test]
+    fn codelen_equals_n_times_entropy() {
+        let counts = [5usize, 3, 2, 1, 1];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let n = fp.sample_size() as f64;
+        let h = entropy_plugin_nats(&fp);
+        let cl = sample_codelen_plugin_nats(&fp);
+        assert!((cl - n * h).abs() < 1e-12);
+
+        let cl_bits = sample_codelen_plugin_bits(&fp);
+        assert!((cl_bits - cl / logp::LN_2).abs() < 1e-12);
+    }
+
+    // ---- logp cross-crate: total_bregman_divergence normalization ----
+
+    #[test]
+    fn total_bregman_divergence_normalization_selfinfo() {
+        // For any p, total_bregman_divergence(p, p, F) = 0 (since Bregman D_F(x,x) = 0).
+        let gen = logp::SquaredL2;
+        let p = [0.3, 0.2, 0.5];
+        let mut grad = [0.0; 3];
+        let d = logp::total_bregman_divergence(&gen, &p, &p, &mut grad).unwrap();
+        assert!(d.abs() < 1e-12, "total Bregman self-divergence should be zero, got {d}");
+    }
+
+    #[test]
+    fn total_bregman_divergence_nonneg() {
+        let gen = logp::SquaredL2;
+        let p = [0.4, 0.3, 0.3];
+        let q = [0.5, 0.2, 0.3];
+        let mut grad = [0.0; 3];
+        let d = logp::total_bregman_divergence(&gen, &p, &q, &mut grad).unwrap();
+        assert!(d >= -1e-12, "total Bregman divergence should be non-negative, got {d}");
+    }
+
+    #[test]
+    fn total_bregman_divergence_le_bregman() {
+        // Total Bregman <= Bregman (normalization divides by >= 1).
+        let gen = logp::SquaredL2;
+        let p = [1.0, 3.0];
+        let q = [2.0, 5.0];
+        let mut grad_tb = [0.0; 2];
+        let mut grad_b = [0.0; 2];
+        let tb = logp::total_bregman_divergence(&gen, &p, &q, &mut grad_tb).unwrap();
+        let b = logp::bregman_divergence(&gen, &p, &q, &mut grad_b).unwrap();
+        assert!(tb <= b + 1e-12, "total Bregman {tb} > Bregman {b}");
+    }
+
+    // ---- logp cross-crate: rho_alpha ----
+
+    #[test]
+    fn rho_alpha_self_is_one() {
+        // rho_alpha(p, p, alpha) = sum p_i^alpha * p_i^{1-alpha} = sum p_i = 1.
+        let p = [0.25, 0.25, 0.5];
+        for alpha in [0.0, 0.5, 1.0, 2.0, -1.0] {
+            let r = logp::rho_alpha(&p, &p, alpha, 1e-9).unwrap();
+            assert!((r - 1.0).abs() < 1e-12, "rho_alpha(p,p,{alpha}) = {r}, expected 1.0");
+        }
+    }
+
+    #[test]
+    fn rho_alpha_bounded_by_one() {
+        // For alpha in (0,1), rho_alpha(p, q) <= 1 by Holder's inequality.
+        let p = [0.6, 0.4];
+        let q = [0.3, 0.7];
+        let r = logp::rho_alpha(&p, &q, 0.5, 1e-9).unwrap();
+        assert!(r <= 1.0 + 1e-12, "rho_alpha should be <= 1 for alpha in (0,1)");
+        assert!(r >= 0.0 - 1e-12, "rho_alpha should be non-negative");
+    }
+
+    // ---- logp cross-crate: hellinger triangle inequality ----
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 128, .. ProptestConfig::default() })]
+
+        #[test]
+        fn hellinger_triangle_inequality(
+            a1 in 0.01f64..10.0,
+            a2 in 0.01f64..10.0,
+            a3 in 0.01f64..10.0,
+            b1 in 0.01f64..10.0,
+            b2 in 0.01f64..10.0,
+            b3 in 0.01f64..10.0,
+            c1 in 0.01f64..10.0,
+            c2 in 0.01f64..10.0,
+            c3 in 0.01f64..10.0,
+        ) {
+            // Normalize to simplices.
+            let sa = a1 + a2 + a3;
+            let p = [a1/sa, a2/sa, a3/sa];
+            let sb = b1 + b2 + b3;
+            let q = [b1/sb, b2/sb, b3/sb];
+            let sc = c1 + c2 + c3;
+            let r = [c1/sc, c2/sc, c3/sc];
+
+            let h_pq = logp::hellinger(&p, &q, 1e-9).unwrap();
+            let h_qr = logp::hellinger(&q, &r, 1e-9).unwrap();
+            let h_pr = logp::hellinger(&p, &r, 1e-9).unwrap();
+
+            // Hellinger distance satisfies the triangle inequality.
+            prop_assert!(h_pr <= h_pq + h_qr + 1e-9,
+                "triangle ineq violated: H(p,r)={h_pr} > H(p,q)={h_pq} + H(q,r)={h_qr}");
+        }
     }
 }

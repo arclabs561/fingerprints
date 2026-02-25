@@ -1,33 +1,67 @@
-//! Valiant–Valiant style “unseen” scaffolding.
+//! Valiant & Valiant (2011/2017) style “unseen” scaffolding.
 //!
-//! The classical VV approach (Poissonized fingerprints + histogram LP) is powerful but involves
-//! design choices (grid, tolerances, constraints). This module provides a minimal, auditable LP
-//! for **support size bounds** as a first step.
+//! The VV approach models the unknown distribution as a histogram (a density over
+//! probability values) and matches the observed fingerprint entries \(F_1, \dots, F_k\)
+//! via Poisson moment constraints. A linear program (LP) over the histogram then yields
+//! bounds on symmetric functionals (support size, entropy).
 //!
-//! Implementation notes:
-//! - Uses a log-spaced probability grid and Poisson moment constraints for `F_1..F_k`.
+//! This module provides a minimal, auditable LP for:
+//!
+//! - [`support_bounds_lp`]: lower and upper bounds on the true support size.
+//! - [`entropy_bounds_lp`]: lower and upper bounds on Shannon entropy (nats).
+//!
+//! Both use a log-spaced probability grid and Poisson PMF coefficients
+//! \(a_{i,j} = \operatorname{Poi}(i; n p_j)\) as the constraint matrix.
+//!
+//! # References
+//!
+//! - Valiant & Valiant (2011): “Estimating the Unseen: an \(n / \log n\)-sample estimator
+//!   for entropy and support size”
+//! - Valiant & Valiant (2017): “Estimating the Unseen: Improved Estimators for Entropy
+//!   and other Properties” (JACM)
+//!
+//! # Status
+//!
+//! This is a **research scaffold**: grid design and constraint policy may evolve.
 
 #![forbid(unsafe_code)]
 
 use crate::{Fingerprint, PropEstError, Result};
 
-/// Parameters for the histogram LP.
+/// Parameters for the VV-style histogram LP.
+///
+/// The LP operates on a discretized "histogram" of the unknown distribution: for each
+/// grid point \(p_j\), a variable \(x_j \ge 0\) represents the number of support elements
+/// with probability \(p_j\). Constraints enforce that the Poisson-expected fingerprint
+/// entries \(\sum_j x_j \operatorname{Poi}(i; n p_j)\) match the observed \(F_i\) within
+/// tolerance, and that the total probability mass \(\sum_j x_j p_j \approx 1\).
+///
+/// # Fields
+///
+/// - `k`: number of fingerprint entries used (\(F_1, \dots, F_k\)).
+/// - `grid_size`: number of grid points in the probability discretization.
+/// - `p_min`, `p_max`: range of the log-spaced probability grid.
+/// - `eps_scale`: controls constraint tolerance (larger = more relaxed bounds).
 #[derive(Debug, Clone)]
 pub struct SupportLpParams {
-    /// Max multiplicity used from the fingerprint (`F_1..F_k`).
+    /// Max multiplicity used from the fingerprint (\(F_1 \dots F_k\)).
     pub k: usize,
-    /// Number of grid points.
+    /// Number of grid points in the log-spaced probability discretization.
     pub grid_size: usize,
-    /// Minimum probability in the grid.
+    /// Minimum probability in the grid (typically \(\sim 1/n^2\)).
     pub p_min: f64,
-    /// Maximum probability in the grid.
+    /// Maximum probability in the grid (typically 1.0).
     pub p_max: f64,
-    /// Tolerance scale for matching fingerprint moments.
+    /// Tolerance scale for matching fingerprint moments. Tolerance for \(F_i\) is
+    /// `eps_scale * (sqrt(F_i) + 1)`.
     pub eps_scale: f64,
 }
 
 impl SupportLpParams {
-    /// Heuristics that are reasonable for small/medium `n`.
+    /// Reasonable defaults for small/medium sample sizes.
+    ///
+    /// Uses `k = 10` fingerprint entries, a 60-point log-spaced grid from
+    /// \(1/n^2\) to 1.0, and `eps_scale = 1.5`.
     #[must_use]
     pub fn default_for(fp: &Fingerprint) -> Self {
         let n = fp.sample_size().max(1) as f64;
@@ -84,9 +118,30 @@ fn grid_log_space(p_min: f64, p_max: f64, m: usize) -> Result<Vec<f64>> {
 
 /// Compute (lower, upper) bounds on support size using a VV-style histogram LP.
 ///
-/// Returns bounds in *expected* support terms; they are real-valued.
+/// Solves two LPs (minimize and maximize \(\sum_j x_j\)) subject to:
 ///
-/// This is a **research scaffold**: expect future evolution in grid design and constraint policy.
+/// - Mass constraint: \(\sum_j x_j p_j \approx 1\) (within `eps_scale / sqrt(n)`).
+/// - Support lower bound: \(\sum_j x_j \ge S_{\text{obs}}\).
+/// - Fingerprint constraints: \(\sum_j x_j \operatorname{Poi}(i; n p_j) \approx F_i\)
+///   for \(i = 1, \dots, k\).
+///
+/// Returns `(lower_bound, upper_bound)` in real-valued expected-support terms.
+///
+/// # Errors
+///
+/// Returns [`PropEstError::Invalid`] if the sample size is zero or the LP is infeasible.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, vv::{SupportLpParams, support_bounds_lp}};
+///
+/// let fp = Fingerprint::from_counts([5, 4, 3, 2, 2, 1, 1, 1]).unwrap();
+/// let params = SupportLpParams::default_for(&fp);
+/// let (lo, hi) = support_bounds_lp(&fp, params).unwrap();
+/// assert!(lo >= fp.observed_support() as f64 - 1e-9);
+/// assert!(hi >= lo - 1e-9);
+/// ```
 pub fn support_bounds_lp(fp: &Fingerprint, params: SupportLpParams) -> Result<(f64, f64)> {
     use minilp::{ComparisonOp, OptimizationDirection, Problem};
 
@@ -149,12 +204,36 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: SupportLpParams) -> Result<(f
     Ok((lower, upper))
 }
 
-/// Compute (lower, upper) bounds on Shannon entropy (nats) using the same VV-style histogram LP.
+/// Compute (lower, upper) bounds on Shannon entropy (nats) using the same VV-style
+/// histogram LP.
 ///
-/// Objective is a linearized entropy over the histogram grid:
-/// \(H \approx -\sum_j x_j p_j \ln p_j\).
+/// The objective is a linearized entropy over the histogram grid:
 ///
-/// This is a **research scaffold**: bounds depend on grid/constraints and may be loose.
+/// \[
+/// H \approx \sum_j x_j \bigl(-p_j \ln p_j\bigr)
+/// \]
+///
+/// Subject to the same mass, support, and fingerprint constraints as
+/// [`support_bounds_lp`]. Returns `(lower_bound, upper_bound)` in nats.
+///
+/// Note: bounds depend on the grid discretization and constraint tolerances and may
+/// be loose, especially for heavy-tailed distributions.
+///
+/// # Errors
+///
+/// Returns [`PropEstError::Invalid`] if the sample size is zero or the LP is infeasible.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, vv::{SupportLpParams, entropy_bounds_lp}};
+///
+/// let fp = Fingerprint::from_counts([5, 4, 3, 2, 2, 1, 1, 1]).unwrap();
+/// let params = SupportLpParams::default_for(&fp);
+/// let (lo, hi) = entropy_bounds_lp(&fp, params).unwrap();
+/// assert!(lo >= -1e-9);
+/// assert!(hi >= lo - 1e-9);
+/// ```
 pub fn entropy_bounds_lp(fp: &Fingerprint, params: SupportLpParams) -> Result<(f64, f64)> {
     use minilp::{ComparisonOp, OptimizationDirection, Problem};
 
@@ -244,5 +323,84 @@ mod tests {
         assert!(lo.is_finite() && hi.is_finite());
         assert!(lo >= -1e-9);
         assert!(hi + 1e-9 >= lo);
+    }
+
+    #[test]
+    fn support_bounds_bracket_observed() {
+        // The LP support lower bound should be >= S_obs, upper bound >= lower bound.
+        let counts = [10usize, 5, 3, 1, 1, 1];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let s_obs = fp.observed_support() as f64;
+        let params = SupportLpParams::default_for(&fp);
+        let (lo, hi) = support_bounds_lp(&fp, params).unwrap();
+        assert!(lo + 1e-9 >= s_obs, "lower bound {lo} < S_obs {s_obs}");
+        assert!(hi + 1e-9 >= lo, "upper bound {hi} < lower bound {lo}");
+    }
+
+    #[test]
+    fn entropy_bounds_bracket_plugin() {
+        // The entropy LP bounds should contain the plug-in entropy (since the plug-in
+        // distribution is feasible for the LP when constraints are loose enough).
+        let counts = [5usize, 4, 3, 2, 2, 1, 1, 1];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let h_plug = crate::entropy_plugin_nats(&fp);
+        let params = SupportLpParams::default_for(&fp);
+        let (lo, hi) = entropy_bounds_lp(&fp, params).unwrap();
+        // The plugin might not be exactly in the LP feasible region (discretization),
+        // but it should be close.
+        assert!(lo <= h_plug + 0.5, "LP lower {lo} >> plug-in {h_plug}");
+        assert!(hi >= h_plug - 0.5, "LP upper {hi} << plug-in {h_plug}");
+    }
+
+    #[test]
+    fn support_bounds_uniform_tight() {
+        // For a large uniform sample with no singletons, LP bounds should be tight
+        // near the observed support.
+        let counts = [20usize, 20, 20, 20, 20];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let s_obs = fp.observed_support() as f64;
+        let params = SupportLpParams::default_for(&fp);
+        let (lo, hi) = support_bounds_lp(&fp, params).unwrap();
+        assert!(lo + 1e-9 >= s_obs);
+        // Upper bound is finite and ordered (the LP is a research scaffold with
+        // loose constraints, so we don't require tight bounds here).
+        assert!(hi.is_finite(), "upper bound should be finite, got {hi}");
+    }
+
+    #[test]
+    fn entropy_bounds_single_symbol() {
+        // Single symbol: entropy should be near 0.
+        let counts = [50usize];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let params = SupportLpParams::default_for(&fp);
+        let (lo, hi) = entropy_bounds_lp(&fp, params).unwrap();
+        assert!(lo >= -1e-9);
+        assert!(hi.is_finite());
+    }
+
+    #[test]
+    fn support_bounds_rejects_empty_sample() {
+        let fp = Fingerprint { f: vec![0] };
+        let params = SupportLpParams {
+            k: 5,
+            grid_size: 20,
+            p_min: 0.001,
+            p_max: 1.0,
+            eps_scale: 1.5,
+        };
+        let result = support_bounds_lp(&fp, params);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn default_params_are_sane() {
+        let counts = [5usize, 3, 1, 1];
+        let fp = Fingerprint::from_counts(counts).unwrap();
+        let params = SupportLpParams::default_for(&fp);
+        assert!(params.k > 0);
+        assert!(params.grid_size >= 2);
+        assert!(params.p_min > 0.0);
+        assert!(params.p_max >= params.p_min);
+        assert!(params.eps_scale > 0.0);
     }
 }

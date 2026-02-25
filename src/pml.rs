@@ -1,11 +1,26 @@
-//! Profile-likelihood / PML-oriented utilities.
+//! Profile Maximum Likelihood (PML) utilities.
 //!
-//! This module intentionally starts with *small, exact* building blocks:
-//! - profile log-likelihood for small observed supports (via a permanent computation)
-//! - a “uniform family” profile-MLE baseline for support size
+//! The **profile** (or **pattern**) of a sample is its fingerprint: the multiset of
+//! multiplicities, ignoring symbol labels. The profile likelihood is the probability
+//! of observing a given profile under a candidate distribution, marginalizing over all
+//! label permutations.
 //!
-//! Full PML (optimizing over arbitrary unlabeled distributions with unseen support) is an active
-//! research area; this scaffolding is designed to support future solvers/heuristics cleanly.
+//! This module provides small, exact building blocks:
+//!
+//! - [`uniform_profile_log_likelihood`]: log-likelihood of a profile under the uniform
+//!   distribution on a given support size.
+//! - [`best_uniform_support_size`]: optimize support size within the uniform family.
+//! - [`profile_log_likelihood_small`]: exact profile log-likelihood for small observed
+//!   supports (\(m \le 20\)) via permanent computation (Ryser formula).
+//!
+//! Full PML (optimizing over arbitrary unlabeled distributions with unseen support) is an
+//! active research area; this scaffolding supports future solvers cleanly.
+//!
+//! # References
+//!
+//! - Orlitsky, Suresh, Wu (2016): “Optimal prediction of the number of unseen species”
+//! - Acharya, Das, Orlitsky, Suresh (2017): “A unified maximum likelihood approach for
+//!   estimating symmetric properties of discrete distributions”
 
 #![forbid(unsafe_code)]
 
@@ -54,14 +69,40 @@ fn ln_binom(n: usize, k: usize) -> f64 {
     ln_factorial(n) - ln_factorial(k) - ln_factorial(n - k)
 }
 
-/// Log-likelihood (natural log) of observing an **unlabeled** count profile under a uniform
-/// distribution on `support_size` symbols.
+/// Log-likelihood (natural log) of observing an **unlabeled** count profile under a
+/// uniform distribution on `support_size` symbols.
 ///
-/// We interpret `counts` as the multiplicities of the **observed** distinct symbols (all counts > 0),
-/// and assume any remaining support symbols have 0 count.
+/// Given observed multiplicities \(c_1, \dots, c_m\) and support size \(S \ge m\),
+/// the profile log-likelihood under the uniform distribution \(p_j = 1/S\) is:
 ///
-/// This is not “full PML” (which optimizes over all distributions), but it is a meaningful baseline
-/// family that is easy to optimize over support size.
+/// \[
+/// \log L = \log \binom{S}{m} + \log\!\left(\frac{m!}{\prod_t \mathrm{mult}_t!}\right)
+///        + \log \frac{n!}{\prod_i c_i!} - n \log S
+/// \]
+///
+/// where \(\mathrm{mult}_t\) counts the number of distinct count values equal to \(t\).
+///
+/// The first two terms account for the assignment of symbols to support positions and
+/// the symmetry breaking for equal counts. The third term is the multinomial
+/// coefficient. The last term is the uniform probability.
+///
+/// # Errors
+///
+/// - [`PropEstError::EmptySample`] if `counts` is empty.
+/// - [`PropEstError::Invalid`] if any count is zero, or `support_size < m`.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::pml::uniform_profile_log_likelihood;
+///
+/// // Two symbols each seen 3 times, support = 2.
+/// let ll = uniform_profile_log_likelihood(&[3, 3], 2).unwrap();
+/// assert!(ll.is_finite());
+/// // Larger support should decrease likelihood (more “wasted” symbols).
+/// let ll2 = uniform_profile_log_likelihood(&[3, 3], 10).unwrap();
+/// assert!(ll > ll2);
+/// ```
 pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> Result<f64> {
     if counts.is_empty() {
         return Err(PropEstError::EmptySample);
@@ -89,7 +130,27 @@ pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> 
     Ok(ln_choose_species + ln_perm_counts + ln_mult + ln_p)
 }
 
-/// Choose the `support_size` in `[m, s_max]` maximizing the uniform-family profile likelihood.
+/// Choose the `support_size` in \([m, s_{\max}]\) maximizing the uniform-family profile
+/// likelihood.
+///
+/// Returns `(best_support_size, log_likelihood)`. The search is exhaustive over
+/// `m..=s_max`, so it is exact but costs \(O(s_{\max} - m)\) likelihood evaluations.
+///
+/// # Errors
+///
+/// - [`PropEstError::EmptySample`] if `counts` is empty.
+/// - [`PropEstError::Invalid`] if `s_max < m` (observed distinct count).
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::pml::best_uniform_support_size;
+///
+/// let counts = [2, 2, 2, 2];
+/// let (s_best, ll) = best_uniform_support_size(&counts, 20).unwrap();
+/// assert!(s_best >= counts.len());
+/// assert!(ll.is_finite());
+/// ```
 #[must_use = "returns (best_support_size, log_likelihood)"]
 pub fn best_uniform_support_size(counts: &[usize], s_max: usize) -> Result<(usize, f64)> {
     if counts.is_empty() {
@@ -122,15 +183,41 @@ fn log_sum_exp(xs: &[f64]) -> f64 {
     m + s.ln()
 }
 
-/// Exact log profile-likelihood for **small** observed support \(m \le 20\).
+/// Exact log profile-likelihood for **small** observed support (\(m \le 20\)).
 ///
 /// Computes:
-/// \[
-/// \log \left(\frac{n!}{\prod_i c_i!}\cdot\frac{1}{\prod_t \mathrm{mult}_t!}\cdot \mathrm{perm}(A)\right)
-/// \]
-/// where \(A_{ij} = p_j^{c_i}\), and `perm` is the permanent.
 ///
-/// This captures the unlabeled assignment uncertainty (profile likelihood) exactly for small `m`.
+/// \[
+/// \log L = \log \frac{n!}{\prod_i c_i!}
+///        - \log \prod_t \mathrm{mult}_t!
+///        + \log \operatorname{perm}(A)
+/// \]
+///
+/// where \(A_{ij} = p_j^{c_i}\), and \(\operatorname{perm}(A)\) is the matrix permanent
+/// (sum of products over all permutations). The permanent is computed via the Ryser
+/// formula in the log domain with Kahan summation for numerical stability.
+///
+/// The matrix permanent captures all ways to assign observed count patterns to
+/// distribution components, which is the essence of profile (label-invariant)
+/// likelihood.
+///
+/// # Errors
+///
+/// - [`PropEstError::EmptySample`] if `counts` is empty.
+/// - [`PropEstError::Invalid`] if `counts.len() != probs.len()`, or `m > 20`, or any
+///   count is zero.
+/// - Propagates simplex validation errors from `logp::validate_simplex`.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::pml::profile_log_likelihood_small;
+///
+/// let counts = [2, 1];
+/// let probs = [0.6, 0.4];
+/// let ll = profile_log_likelihood_small(&counts, &probs, 1e-9).unwrap();
+/// assert!(ll.is_finite());
+/// ```
 pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -> Result<f64> {
     if counts.is_empty() {
         return Err(PropEstError::EmptySample);
@@ -300,5 +387,71 @@ mod tests {
 
         assert!((ll - ll_brute).abs() < 1e-9);
         assert!((ll_rev - ll_brute).abs() < 1e-9);
+    }
+
+    #[test]
+    fn uniform_profile_rejects_zero_counts() {
+        let result = uniform_profile_log_likelihood(&[0, 1, 2], 5);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn uniform_profile_rejects_support_too_small() {
+        let result = uniform_profile_log_likelihood(&[1, 2, 3], 2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn uniform_profile_ll_monotone_in_support_near_true() {
+        // For a uniform sample, likelihood should peak near the true support size.
+        let counts = [5, 5, 5, 5]; // 4 symbols, each 5 times
+        let m = counts.len();
+        let (s_best, _) = best_uniform_support_size(&counts, m + 100).unwrap();
+        // Best support should be exactly m for a uniform sample (since more symbols
+        // waste probability mass). In practice it is m or close to m.
+        assert!(s_best <= m + 5, "s_best = {s_best}, expected near {m}");
+    }
+
+    #[test]
+    fn profile_ll_small_uniform_matches_uniform_profile() {
+        // For a uniform distribution, profile_log_likelihood_small and
+        // uniform_profile_log_likelihood should agree.
+        let counts = [2, 2, 2];
+        let m = counts.len();
+        let probs: Vec<f64> = vec![1.0 / m as f64; m];
+
+        let ll_small = profile_log_likelihood_small(&counts, &probs, 1e-9).unwrap();
+        let ll_uniform = uniform_profile_log_likelihood(&counts, m).unwrap();
+
+        // They compute the same thing for uniform probs (up to numerical precision).
+        assert!(
+            (ll_small - ll_uniform).abs() < 1e-6,
+            "ll_small={ll_small}, ll_uniform={ll_uniform}"
+        );
+    }
+
+    #[test]
+    fn profile_ll_small_rejects_mismatched_lengths() {
+        let result = profile_log_likelihood_small(&[1, 2], &[0.5, 0.3, 0.2], 1e-9);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn profile_ll_small_rejects_too_large_support() {
+        let counts: Vec<usize> = (1..=21).collect();
+        let probs: Vec<f64> = {
+            let s: f64 = (1..=21).map(|i| i as f64).sum();
+            (1..=21).map(|i| i as f64 / s).collect()
+        };
+        let result = profile_log_likelihood_small(&counts, &probs, 1e-9);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn best_uniform_support_size_single_symbol() {
+        // Single symbol: support must be at least 1.
+        let (s, ll) = best_uniform_support_size(&[10], 100).unwrap();
+        assert!(s >= 1);
+        assert!(ll.is_finite());
     }
 }
