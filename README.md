@@ -99,6 +99,14 @@ No feature flags. `fingerprints::vv`’s LP-backed bounds are available by defau
 - `cargo run --example pitman_yor_zipf`
 - `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1`
 
+## Tests
+
+```bash
+cargo test -p fingerprints
+```
+
+72 tests (51 unit + 21 doc-tests) covering entropy estimator consistency, bias correction ordering, Good-Turing/Chao1 edge cases, profile likelihood monotonicity, VV LP bounds bracketing, Hellinger triangle inequality (proptest), and cross-crate property tests against logp (total Bregman normalization, rho-alpha identity).
+
 ## Roadmap (near-term)
 
 - VV-style LP constraints that better track classical VV practice (grid policy, tighter moments).
