@@ -12,6 +12,15 @@
 //!
 //! These provide useful baselines and sanity checks for more sophisticated estimators in
 //! [`crate::pml`] and [`crate::vv`].
+//!
+//! # References
+//!
+//! - Good (1953): "The population frequencies of species" -- foundational coverage estimator
+//! - Chao (1984): "Nonparametric estimation of the number of classes in a population" --
+//!   Chao1 lower bound on species richness (used in [`crate::support_chao1`])
+//! - Flajolet, Gardy, Thimonier (1992): "Birthday paradox, coupon collectors, caching
+//!   algorithms, and self-organizing search" -- rigorous analysis of the coupon collector
+//!   and birthday problems underlying the baselines here
 
 use crate::{PropEstError, Result};
 

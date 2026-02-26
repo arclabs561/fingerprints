@@ -7,9 +7,28 @@
 //! - Rely on a *definition* layer for entropy/divergence on known distributions.
 //! - Put estimation policy here (bias correction, sample-size regimes, solver-backed methods).
 //!
-//! References (orientation):
-//! - Valiant & Valiant (2013/2017): “Estimating the Unseen…”
-//! - Orlitsky line: profile / PML estimators (future).
+//! ## Estimator hierarchy
+//!
+//! The entropy estimators form a bias-correction hierarchy from cheapest to most principled:
+//!
+//! 1. **Plug-in** -- maximum-likelihood; O(1) per fingerprint entry; negatively biased.
+//! 2. **Miller-Madow** -- adds `(S_obs - 1) / 2n`; corrects the leading O(1/n) bias term.
+//! 3. **Jackknife** -- delete-1 resampling; removes bias to higher order without a parametric model.
+//! 4. **Pitman-Yor (DPYM)** -- Bayesian nonparametric; models the unseen tail explicitly via the
+//!    Pitman-Yor process. Formally posterior-consistent under mild conditions (Hashino & Tsukuda, 2026).
+//!
+//! For support estimation, Chao1 provides a nonparametric lower bound on the true support size.
+//! For unseen mass, the Good-Turing estimator is the classical baseline.
+//!
+//! ## References (orientation)
+//!
+//! - Valiant & Valiant (2013/2017): "Estimating the Unseen" (JACM)
+//! - Orlitsky line: profile / PML estimators (see [`pml`] module)
+//! - Han, Jiao, Weissman (2025): "Besting Good-Turing: Optimality of NPMLE" -- establishes
+//!   that the nonparametric MLE achieves minimax-optimal rates for symmetric functionals,
+//!   providing theoretical motivation for the PML direction on our roadmap
+//! - Hashino & Tsukuda (2026): "Estimating the Shannon Entropy Using the Pitman-Yor Process" --
+//!   posterior consistency of the PY estimator implemented here
 //!
 //! ## Quick example
 //!
@@ -295,7 +314,15 @@ pub fn entropy_miller_madow_nats(fp: &Fingerprint) -> f64 {
 /// where \(H_{n-1}\) is the plug-in entropy of the sample with one observation removed uniformly
 /// at random.
 ///
-/// This is a classical, solver-free improvement over the plug-in estimator.
+/// This is a classical, solver-free improvement over the plug-in estimator. It removes bias to
+/// O(1/n^2) without requiring a parametric model, sitting between Miller-Madow (O(1/n) correction)
+/// and the full Bayesian nonparametric approach (Pitman-Yor). The tradeoff is higher variance
+/// than Miller-Madow for very small samples.
+///
+/// # References
+///
+/// - Zahl (1977), "Jackknifing an index of diversity"
+/// - Efron (1979), "Bootstrap methods: another look at the jackknife"
 #[must_use]
 pub fn entropy_jackknife_nats(fp: &Fingerprint) -> f64 {
     let n_usize = fp.sample_size();
@@ -382,6 +409,11 @@ pub fn entropy_jackknife_nats_from_counts(counts: &[usize]) -> Result<f64> {
 /// # References
 ///
 /// - Good (1953), "The population frequencies of species and the estimation of population parameters"
+/// - Painsky (2023), "Generalized Good-Turing improves missing mass estimation" (JASA) --
+///   shows a generalized GT estimator that dominates classical GT in MSE; a potential
+///   upgrade path for this function
+/// - Chang, Liu, Zheng (2025), "Confidence Intervals Using Turing's Estimator" -- provides
+///   non-asymptotic CIs for the missing mass; relevant for future CI support
 ///
 /// # Examples
 ///
@@ -417,9 +449,16 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
 /// The estimator satisfies \(\hat S \ge S_{\text{obs}}\). When \(F_1 = 0\) (no singletons),
 /// the estimate equals \(S_{\text{obs}}\) (no unseen species are predicted).
 ///
+/// The Chao1 estimator is a nonparametric lower bound: it is guaranteed to never overestimate
+/// the true support size (in expectation), making it safe for conservative decisions.
+///
 /// # References
 ///
-/// - Chao (1984), "Nonparametric estimation of the number of classes in a population"
+/// - Chao (1984), "Nonparametric estimation of the number of classes in a population" --
+///   the foundational reference; derives the estimator as a lower bound on species richness
+///   using only singletons and doubletons
+/// - Chao & Jost (2012), "Coverage-based rarefaction and extrapolation" -- extends the
+///   framework to abundance-based coverage
 ///
 /// # Examples
 ///
@@ -758,6 +797,11 @@ pub fn pitman_yor_params_hat(fp: &Fingerprint) -> PitmanYorParams {
 /// distribution \(q\), including an explicit “unseen mass” bucket, and returns \(H(q)\).
 /// Parameters \((d, \alpha)\) are selected by minimizing a cross-entropy upper bound
 /// (see [`pitman_yor_params_hat`]).
+///
+/// The PY process provides a power-law tail model for the unseen portion of the distribution,
+/// which is more realistic than the geometric tail of the Dirichlet process (d=0 case).
+/// Hashino & Tsukuda (2026) prove posterior consistency: as sample size grows, the DPYM
+/// estimator converges to the true entropy under mild regularity conditions.
 ///
 /// When there are no singletons (\(F_1 = 0\)), the estimator reduces to the plug-in
 /// estimator (no unseen-mass correction is applied).

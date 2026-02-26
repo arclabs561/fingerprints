@@ -1,4 +1,5 @@
-//! Profile Maximum Likelihood (PML) utilities.
+//! Profile Maximum Li
+kelihood (PML) utilities.
 //!
 //! The **profile** (or **pattern**) of a sample is its fingerprint: the multiset of
 //! multiplicities, ignoring symbol labels. The profile likelihood is the probability
@@ -21,6 +22,12 @@
 //! - Orlitsky, Suresh, Wu (2016): “Optimal prediction of the number of unseen species”
 //! - Acharya, Das, Orlitsky, Suresh (2017): “A unified maximum likelihood approach for
 //!   estimating symmetric properties of discrete distributions”
+//! - Hao & Orlitsky (2019): "The Broad Optimality of Profile Maximum Likelihood" --
+//!   establishes PML as unified sample-optimal estimator; the theoretical foundation for this module
+//! - Pavlichin, Jiao, Weissman (2017): "Approximate Profile Maximum Likelihood" --
+//!   EM-style algorithm for approximate PML; relevant to scaling beyond `profile_log_likelihood_small`
+//! - Charikar, Hu, Steinhardt (2022): "On the Efficient Implementation of High Accuracy
+//!   Optimality of PML" -- practical PML beyond the uniform family; relevant to roadmap
 
 #![forbid(unsafe_code)]
 

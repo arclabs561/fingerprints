@@ -23,6 +23,9 @@
 //! # Status
 //!
 //! This is a **research scaffold**: grid design and constraint policy may evolve.
+//! The LP relaxation approach here follows the VV methodology of bounding symmetric
+//! functionals via Poisson moment constraints on the fingerprint. Grid resolution and
+//! constraint tolerances are the main knobs for tightness vs. feasibility.
 
 #![forbid(unsafe_code)]
 

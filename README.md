@@ -113,6 +113,21 @@ cargo test -p fingerprints
 - PML beyond the uniform family (solver/heuristics; keep behind clear, opt-in APIs).
 - More properties beyond entropy/support (e.g. distance-to-uniformity proxies).
 
+## References
+
+Key papers motivating the estimator families in this crate:
+
+- Good (1953), "The population frequencies of species and the estimation of population parameters" -- Good-Turing coverage
+- Chao (1984), "Nonparametric estimation of the number of classes in a population" -- Chao1 support estimator
+- Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM) -- LP-based bounds
+- Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood" -- PML as unified sample-optimal estimator
+- Hashino & Tsukuda (2026), "Estimating the Shannon Entropy Using the Pitman-Yor Process" -- PY entropy estimator
+- Han, Jiao, Weissman (2025), "Besting Good-Turing: Optimality of NPMLE" -- theoretical motivation for PML direction
+
+Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and diversity indices all reduce to the fingerprint-based estimation problems addressed here. See:
+
+- Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices" -- documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators like those in this crate
+
 ## License
 
 MIT OR Apache-2.0
