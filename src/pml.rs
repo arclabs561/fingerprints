@@ -1,5 +1,4 @@
-//! Profile Maximum Li
-kelihood (PML) utilities.
+//! Profile Maximum Likelihood (PML) utilities.
 //!
 //! The **profile** (or **pattern**) of a sample is its fingerprint: the multiset of
 //! multiplicities, ignoring symbol labels. The profile likelihood is the probability
