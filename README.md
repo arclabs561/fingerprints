@@ -1,5 +1,9 @@
 # fingerprints
 
+[![crates.io](https://img.shields.io/crates/v/fingerprints.svg)](https://crates.io/crates/fingerprints)
+[![Documentation](https://docs.rs/fingerprints/badge.svg)](https://docs.rs/fingerprints)
+[![CI](https://github.com/arclabs561/fingerprints/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/fingerprints/actions/workflows/ci.yml)
+
 Property estimation from samples.
 
 This crate provides estimators of information-theoretic functionals from *samples* (counts /
