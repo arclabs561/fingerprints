@@ -1333,7 +1333,10 @@ mod tests {
         let p = [0.3, 0.2, 0.5];
         let mut grad = [0.0; 3];
         let d = logp::total_bregman_divergence(&gen, &p, &p, &mut grad).unwrap();
-        assert!(d.abs() < 1e-12, "total Bregman self-divergence should be zero, got {d}");
+        assert!(
+            d.abs() < 1e-12,
+            "total Bregman self-divergence should be zero, got {d}"
+        );
     }
 
     #[test]
@@ -1343,7 +1346,10 @@ mod tests {
         let q = [0.5, 0.2, 0.3];
         let mut grad = [0.0; 3];
         let d = logp::total_bregman_divergence(&gen, &p, &q, &mut grad).unwrap();
-        assert!(d >= -1e-12, "total Bregman divergence should be non-negative, got {d}");
+        assert!(
+            d >= -1e-12,
+            "total Bregman divergence should be non-negative, got {d}"
+        );
     }
 
     #[test]
@@ -1367,7 +1373,10 @@ mod tests {
         let p = [0.25, 0.25, 0.5];
         for alpha in [0.0, 0.5, 1.0, 2.0, -1.0] {
             let r = logp::rho_alpha(&p, &p, alpha, 1e-9).unwrap();
-            assert!((r - 1.0).abs() < 1e-12, "rho_alpha(p,p,{alpha}) = {r}, expected 1.0");
+            assert!(
+                (r - 1.0).abs() < 1e-12,
+                "rho_alpha(p,p,{alpha}) = {r}, expected 1.0"
+            );
         }
     }
 
@@ -1377,7 +1386,10 @@ mod tests {
         let p = [0.6, 0.4];
         let q = [0.3, 0.7];
         let r = logp::rho_alpha(&p, &q, 0.5, 1e-9).unwrap();
-        assert!(r <= 1.0 + 1e-12, "rho_alpha should be <= 1 for alpha in (0,1)");
+        assert!(
+            r <= 1.0 + 1e-12,
+            "rho_alpha should be <= 1 for alpha in (0,1)"
+        );
         assert!(r >= 0.0 - 1e-12, "rho_alpha should be non-negative");
     }
 
