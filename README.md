@@ -57,7 +57,7 @@ assert!(s_hat >= fp.observed_support() as f64);
 ## API tour
 
 - **Fingerprint abstraction**:
-  - `Fingerprint::from_counts`, `sample_size`, `observed_support`, `singletons`, `doubletons`
+  - `Fingerprint::from_counts`, `Fingerprint::from_frequency_counts`, `sample_size`, `observed_support`, `singletons`, `doubletons`
 - **Entropy estimators (nats)**:
   - `entropy_default_nats` (opinionated default; currently aliases Pitman–Yor)
   - `entropy_plugin_nats`
@@ -66,6 +66,7 @@ assert!(s_hat >= fp.observed_support() as f64);
   - `entropy_pitman_yor_nats` (Pitman–Yor / DPYM; targets the unseen regime)
   - `pitman_yor_params_hat` (inspect selected hyperparameters)
 - **Coverage / support**:
+  - `coverage_good_turing` (sample coverage \( \hat C = 1 - F_1/n \))
   - `unseen_mass_good_turing` (unseen mass \( \hat p_0 \approx F_1/n \))
   - `support_chao1`
 - **Coverage baselines / toy problems** (`fingerprints::coverage`):
@@ -109,7 +110,7 @@ No feature flags. `fingerprints::vv`’s LP-backed bounds are available by defau
 cargo test -p fingerprints
 ```
 
-72 tests (51 unit + 21 doc-tests) covering entropy estimator consistency, bias correction ordering, Good-Turing/Chao1 edge cases, profile likelihood monotonicity, VV LP bounds bracketing, Hellinger triangle inequality (proptest), and cross-crate property tests against logp (total Bregman normalization, rho-alpha identity).
+84 tests (61 unit + 23 doc-tests) covering entropy estimator consistency, bias correction ordering, Good-Turing/Chao1 edge cases, profile likelihood monotonicity, VV LP bounds bracketing, Hellinger triangle inequality (proptest), fingerprint sufficiency invariant, convergence on Zipf distributions, all-singletons and no-singletons edge cases, and cross-crate property tests against logp (total Bregman normalization, rho-alpha identity).
 
 ## Roadmap (near-term)
 

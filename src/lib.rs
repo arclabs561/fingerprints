@@ -176,6 +176,46 @@ impl Fingerprint {
         Ok(Self { f })
     }
 
+    /// Build a fingerprint directly from a counts-of-counts vector.
+    ///
+    /// `f[i]` is the number of symbols seen exactly `i` times. `f[0]` must be 0
+    /// (unseen symbols are not tracked). The vector must contain at least one
+    /// non-zero entry at index >= 1.
+    ///
+    /// Use this when you already have the fingerprint representation (e.g., from
+    /// serialized data or an external tool).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PropEstError::Invalid`] if `f[0] != 0` or if all entries are zero.
+    /// Returns [`PropEstError::EmptySample`] if the vector is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fingerprints::Fingerprint;
+    ///
+    /// // F[1]=2, F[3]=1 means: 2 singletons, 1 symbol seen 3 times.
+    /// let fp = Fingerprint::from_frequency_counts(&[0, 2, 0, 1]).unwrap();
+    /// assert_eq!(fp.singletons(), 2);
+    /// assert_eq!(fp.observed_support(), 3); // 2 + 0 + 1
+    /// assert_eq!(fp.sample_size(), 5);      // 1*2 + 3*1
+    /// ```
+    pub fn from_frequency_counts(f: &[usize]) -> Result<Self> {
+        if f.is_empty() {
+            return Err(PropEstError::EmptySample);
+        }
+        if f.first().copied().unwrap_or(0) != 0 {
+            return Err(PropEstError::Invalid(
+                "f[0] must be 0 (unseen count is not stored)",
+            ));
+        }
+        if f.iter().skip(1).all(|&fi| fi == 0) {
+            return Err(PropEstError::Invalid("all frequency counts are zero"));
+        }
+        Ok(Self { f: f.to_vec() })
+    }
+
     /// Total sample size: \(n = \sum_{i \ge 1} i \cdot F_i\).
     #[must_use]
     pub fn sample_size(&self) -> usize {
@@ -283,9 +323,18 @@ pub fn entropy_plugin_nats_from_counts(counts: &[usize]) -> Result<f64> {
 /// where \(S_{\text{obs}}\) is the observed support size. The correction term
 /// compensates for the leading \(O(1/n)\) negative bias of the plug-in estimator.
 ///
+/// # Caution
+///
+/// The correction is first-order only. When \(S_{\text{obs}} \approx n\) (many singletons,
+/// undersampled regime), higher-order bias terms dominate and Miller--Madow can be *less*
+/// accurate than the plug-in estimator. In that regime, prefer [`entropy_pitman_yor_nats`]
+/// or the jackknife.
+///
 /// # References
 ///
 /// - Miller (1955), "Note on the bias of information estimates"
+/// - Paninski (2003), "Estimation of entropy and mutual information" -- analyzes failure
+///   of the first-order correction when alphabet size grows with sample size
 ///
 /// # Examples
 ///
@@ -432,6 +481,31 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
         return 0.0;
     }
     (fp.singletons() as f64 / n).clamp(0.0, 1.0)
+}
+
+/// Good--Turing sample coverage: the estimated fraction of the distribution observed.
+///
+/// \[
+/// \hat C = 1 - \frac{F_1}{n}
+/// \]
+///
+/// Coverage is the complement of unseen mass: `coverage_good_turing(fp) == 1.0 -
+/// unseen_mass_good_turing(fp)`. When coverage is 1.0 (no singletons), all observed
+/// species have been seen at least twice, suggesting the sample may be adequate.
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, coverage_good_turing};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+/// let c = coverage_good_turing(&fp);
+/// // F_1 = 2, n = 10, coverage = 1 - 2/10 = 0.8.
+/// assert!((c - 0.8).abs() < 1e-12);
+/// ```
+#[must_use]
+pub fn coverage_good_turing(fp: &Fingerprint) -> f64 {
+    1.0 - unseen_mass_good_turing(fp)
 }
 
 /// Chao1 lower-bound estimator of the true support size.
@@ -1426,5 +1500,198 @@ mod tests {
             prop_assert!(h_pr <= h_pq + h_qr + 1e-9,
                 "triangle ineq violated: H(p,r)={h_pr} > H(p,q)={h_pq} + H(q,r)={h_qr}");
         }
+    }
+
+    // ---- from_frequency_counts constructor ----
+
+    #[test]
+    fn from_frequency_counts_roundtrip() {
+        let fp1 = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+        let fp2 = Fingerprint::from_frequency_counts(&fp1.f).unwrap();
+        assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn from_frequency_counts_rejects_nonzero_f0() {
+        let err = Fingerprint::from_frequency_counts(&[1, 2, 3]).unwrap_err();
+        assert!(matches!(err, PropEstError::Invalid(_)));
+    }
+
+    #[test]
+    fn from_frequency_counts_rejects_all_zero() {
+        let err = Fingerprint::from_frequency_counts(&[0, 0, 0]).unwrap_err();
+        assert!(matches!(err, PropEstError::Invalid(_)));
+    }
+
+    #[test]
+    fn from_frequency_counts_rejects_empty() {
+        let err = Fingerprint::from_frequency_counts(&[]).unwrap_err();
+        assert!(matches!(err, PropEstError::EmptySample));
+    }
+
+    // ---- coverage_good_turing ----
+
+    #[test]
+    fn coverage_complements_unseen_mass() {
+        let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+        let c = coverage_good_turing(&fp);
+        let p0 = unseen_mass_good_turing(&fp);
+        assert!((c + p0 - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn coverage_no_singletons_is_one() {
+        let fp = Fingerprint::from_counts([4, 4, 4]).unwrap();
+        assert!((coverage_good_turing(&fp) - 1.0).abs() < 1e-15);
+    }
+
+    // ---- all-singletons edge case for all estimators ----
+
+    #[test]
+    fn all_singletons_all_estimators() {
+        // Every symbol seen exactly once. Maximum uncertainty about unseen mass.
+        let fp = Fingerprint::from_counts([1, 1, 1, 1, 1]).unwrap();
+        assert_eq!(fp.singletons(), 5);
+        assert_eq!(fp.doubletons(), 0);
+
+        let h_plugin = entropy_plugin_nats(&fp);
+        let h_mm = entropy_miller_madow_nats(&fp);
+        let h_jk = entropy_jackknife_nats(&fp);
+        let h_py = entropy_pitman_yor_nats(&fp);
+
+        assert!(h_plugin >= 0.0);
+        assert!(h_mm >= h_plugin); // MM adds positive correction
+        assert!(h_jk.is_finite());
+        assert!(h_py.is_finite() && h_py >= 0.0);
+
+        // Good-Turing: coverage = 0 (all singletons -> f_1/n = 1 -> unseen mass = 1)
+        assert!((unseen_mass_good_turing(&fp) - 1.0).abs() < 1e-12);
+        assert!((coverage_good_turing(&fp)).abs() < 1e-12);
+
+        // Chao1 with f_2=0 fallback: S_obs + f_1*(f_1-1)/2 = 5 + 5*4/2 = 15
+        let s_hat = support_chao1(&fp);
+        assert!((s_hat - 15.0).abs() < 1e-12);
+    }
+
+    // ---- f_1=0 edge case (no singletons) ----
+
+    #[test]
+    fn no_singletons_all_estimators() {
+        // All symbols seen >= 2 times.
+        let fp = Fingerprint::from_counts([4, 3, 2, 2]).unwrap();
+        assert_eq!(fp.singletons(), 0);
+
+        let h_plugin = entropy_plugin_nats(&fp);
+        let h_mm = entropy_miller_madow_nats(&fp);
+        let h_jk = entropy_jackknife_nats(&fp);
+        let h_py = entropy_pitman_yor_nats(&fp);
+
+        assert!(h_plugin >= 0.0);
+        assert!(h_mm >= h_plugin);
+        assert!(h_jk.is_finite() && h_jk >= 0.0);
+        assert!(h_py.is_finite() && h_py >= 0.0);
+
+        // Good-Turing: unseen mass = 0 (no singletons)
+        assert!((unseen_mass_good_turing(&fp)).abs() < 1e-12);
+        assert!((coverage_good_turing(&fp) - 1.0).abs() < 1e-12);
+
+        // Chao1: no singletons -> S_hat = S_obs
+        assert!((support_chao1(&fp) - fp.observed_support() as f64).abs() < 1e-12);
+    }
+
+    // ---- fingerprint sufficiency: identical fingerprints -> identical estimates ----
+
+    #[test]
+    fn fingerprint_sufficiency_invariant() {
+        // Two different count vectors that produce the same fingerprint.
+        // [5, 3, 1, 1] and [1, 5, 1, 3] have the same fingerprint: F[1]=2, F[3]=1, F[5]=1.
+        let fp1 = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+        let fp2 = Fingerprint::from_counts([1, 5, 1, 3]).unwrap();
+        assert_eq!(fp1, fp2);
+
+        assert_eq!(entropy_plugin_nats(&fp1), entropy_plugin_nats(&fp2));
+        assert_eq!(
+            entropy_miller_madow_nats(&fp1),
+            entropy_miller_madow_nats(&fp2)
+        );
+        assert_eq!(entropy_jackknife_nats(&fp1), entropy_jackknife_nats(&fp2));
+        assert_eq!(entropy_pitman_yor_nats(&fp1), entropy_pitman_yor_nats(&fp2));
+        assert_eq!(unseen_mass_good_turing(&fp1), unseen_mass_good_turing(&fp2));
+        assert_eq!(support_chao1(&fp1), support_chao1(&fp2));
+    }
+
+    // ---- convergence test: entropy estimates should improve with more data ----
+
+    #[test]
+    fn entropy_convergence_on_zipf() {
+        // Draw samples from Zipf(s=1.5) on support size S=20.
+        // True entropy = sum_{i=1}^{S} p_i * ln(1/p_i).
+        // Use a deterministic LCG to draw samples at N=100, N=1000, N=5000.
+        let s = 20usize;
+        let alpha = 1.5_f64;
+
+        // Compute Zipf probabilities.
+        let unnorm: Vec<f64> = (1..=s).map(|i| 1.0 / (i as f64).powf(alpha)).collect();
+        let z: f64 = unnorm.iter().sum();
+        let probs: Vec<f64> = unnorm.iter().map(|u| u / z).collect();
+        let h_true: f64 = probs
+            .iter()
+            .filter(|&&p| p > 0.0)
+            .map(|&p| -p * p.ln())
+            .sum();
+
+        let mut errors = Vec::new();
+        for &n in &[100usize, 1000, 5000] {
+            let counts = deterministic_zipf_sample(s, &probs, n, 42 + n as u64);
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let h_py = entropy_pitman_yor_nats(&fp);
+            errors.push((h_py - h_true).abs());
+        }
+
+        // Error at N=5000 should be smaller than at N=100.
+        assert!(
+            errors[2] < errors[0],
+            "PY estimate should converge: err@100={:.4}, err@5000={:.4}",
+            errors[0],
+            errors[2]
+        );
+    }
+
+    /// Draw `n` samples from a discrete distribution with given probabilities.
+    /// Uses a deterministic LCG for reproducibility.
+    fn deterministic_zipf_sample(s: usize, probs: &[f64], n: usize, seed: u64) -> Vec<usize> {
+        let mut state: u64 = seed;
+        let mut next_uniform = || -> f64 {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+
+        // Build CDF.
+        let mut cdf = vec![0.0; s + 1];
+        for i in 0..s {
+            cdf[i + 1] = cdf[i] + probs[i];
+        }
+
+        let mut counts = vec![0usize; s];
+        for _ in 0..n {
+            let u = next_uniform();
+            // Binary search for the bin.
+            let mut lo = 0;
+            let mut hi = s;
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                if cdf[mid + 1] <= u {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+            if lo < s {
+                counts[lo] += 1;
+            }
+        }
+        counts
     }
 }

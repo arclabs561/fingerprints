@@ -12,7 +12,7 @@ categories = ["algorithms", "science", "mathematics"]
 
 [dependencies]
 thiserror = "2.0"
-logp = "0.1.0"
+logp = "0.1.1"
 minilp = "0.2"
 
 [dev-dependencies]
