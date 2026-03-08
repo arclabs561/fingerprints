@@ -249,6 +249,25 @@ impl Fingerprint {
     pub fn doubletons(&self) -> usize {
         self.f.get(2).copied().unwrap_or(0)
     }
+
+    /// \(F_r\): the number of symbols seen exactly `r` times.
+    ///
+    /// Returns 0 for any `r` beyond the stored fingerprint length, and for `r = 0`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fingerprints::Fingerprint;
+    ///
+    /// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+    /// assert_eq!(fp.count_at(1), fp.singletons());
+    /// assert_eq!(fp.count_at(2), fp.doubletons());
+    /// assert_eq!(fp.count_at(100), 0);
+    /// ```
+    #[must_use]
+    pub fn count_at(&self, r: usize) -> usize {
+        self.f.get(r).copied().unwrap_or(0)
+    }
 }
 
 /// Plug-in (empirical) entropy estimator (nats) from a fingerprint.
@@ -464,6 +483,8 @@ pub fn entropy_jackknife_nats_from_counts(counts: &[usize]) -> Result<f64> {
 /// - Chang, Liu, Zheng (2025), "Confidence Intervals Using Turing's Estimator" -- provides
 ///   non-asymptotic CIs for the missing mass; relevant for future CI support
 ///
+/// For the general frequency formula (`r >= 1`), see [`good_turing_estimate`].
+///
 /// # Examples
 ///
 /// ```
@@ -483,6 +504,83 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
     (fp.singletons() as f64 / n).clamp(0.0, 1.0)
 }
 
+/// Minimal-bias unseen mass estimator using the full fingerprint.
+///
+/// An alternating-sign linear combination of all fingerprint entries:
+///
+/// \[
+/// \hat M_0^{\text{MB}} = \sum_{i=1}^{r_{\max}} (-1)^{i-1} \frac{F_i}{\binom{n}{i}}
+/// \]
+///
+/// This uses all available frequency classes to exponentially reduce bias compared to
+/// the Good--Turing estimator (which uses only `F_1`). The first term `F_1/n` equals
+/// the Good--Turing estimate; the remaining terms are its exact bias correction.
+///
+/// # Tradeoffs
+///
+/// - **Bias**: exponentially smaller than Good--Turing (O(S * p_max^n) vs O(1/n)).
+/// - **Variance**: can be higher than Good--Turing for skewed distributions where
+///   p_max >= 0.5. Use Good--Turing when the distribution is known to be highly skewed.
+/// - **Numerical**: the alternating signs and large binomial coefficients require
+///   careful computation; the implementation uses iterative binomial coefficient
+///   evaluation to avoid overflow.
+///
+/// # References
+///
+/// - Lee & Bohme (2025), "How Much is Unseen Depends Chiefly on Information About
+///   the Seen" (ICLR) -- derives the exact bias decomposition of Good--Turing and
+///   the minimal-bias estimator
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, unseen_mass_minimal_bias, unseen_mass_good_turing};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+/// let p0_mb = unseen_mass_minimal_bias(&fp);
+/// let p0_gt = unseen_mass_good_turing(&fp);
+/// assert!((0.0..=1.0).contains(&p0_mb));
+/// // Both are estimates of the same quantity.
+/// assert!(p0_mb.is_finite());
+/// ```
+#[must_use]
+pub fn unseen_mass_minimal_bias(fp: &Fingerprint) -> f64 {
+    let n = fp.sample_size();
+    if n == 0 {
+        return 0.0;
+    }
+    let mut sum = 0.0;
+    for i in 1..fp.f.len() {
+        let f_i = fp.count_at(i) as f64;
+        if f_i == 0.0 {
+            continue;
+        }
+        let sign = if i % 2 == 1 { 1.0 } else { -1.0 };
+        let binom = binom_f64(n, i);
+        if binom > 0.0 {
+            sum += sign * f_i / binom;
+        }
+    }
+    sum.clamp(0.0, 1.0)
+}
+
+/// Binomial coefficient C(n, k) as f64, computed iteratively for stability.
+fn binom_f64(n: usize, k: usize) -> f64 {
+    if k > n {
+        return 0.0;
+    }
+    if k == 0 || k == n {
+        return 1.0;
+    }
+    let k = k.min(n - k);
+    let mut result = 1.0_f64;
+    for i in 0..k {
+        result *= (n - i) as f64;
+        result /= (i + 1) as f64;
+    }
+    result
+}
+
 /// Good--Turing sample coverage: the estimated fraction of the distribution observed.
 ///
 /// \[
@@ -492,6 +590,8 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
 /// Coverage is the complement of unseen mass: `coverage_good_turing(fp) == 1.0 -
 /// unseen_mass_good_turing(fp)`. When coverage is 1.0 (no singletons), all observed
 /// species have been seen at least twice, suggesting the sample may be adequate.
+///
+/// For a bias-corrected variant using doubletons, see [`coverage_chao_shen`].
 ///
 /// # Examples
 ///
@@ -506,6 +606,111 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
 #[must_use]
 pub fn coverage_good_turing(fp: &Fingerprint) -> f64 {
     1.0 - unseen_mass_good_turing(fp)
+}
+
+/// Good--Turing frequency estimate for items seen exactly `r` times.
+///
+/// For `r >= 1`, estimates the true probability of any item observed exactly `r` times:
+///
+/// \[
+/// \hat\theta(r) = \frac{r+1}{n} \cdot \frac{F_{r+1}}{F_r}
+/// \]
+///
+/// Returns `None` when `r = 0` (use [`unseen_mass_good_turing`] for the total unseen mass),
+/// when `F_r = 0` (undefined), or when the sample is empty.
+///
+/// # Properties
+///
+/// - **Normalization**: `unseen_mass + sum_r theta_hat(r) * F_r = 1` for all fingerprints.
+/// - **Max-count pathology**: `theta_hat(r_max) = 0` because `F_{r_max+1} = 0`.
+///   The most frequent items are systematically underweighted.
+///
+/// # References
+///
+/// - Good (1953), "The population frequencies of species and the estimation of
+///   population parameters"
+/// - Gale & Sampson (1995), "Good-Turing frequency estimation without tears" --
+///   log-linear smoothing of the frequency spectrum to handle zero `F_r` entries
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, good_turing_estimate};
+///
+/// // counts [3, 3, 2, 1, 1]: F_1=2, F_2=1, F_3=2
+/// let fp = Fingerprint::from_counts([3, 3, 2, 1, 1]).unwrap();
+/// let n = fp.sample_size() as f64; // 10
+///
+/// // theta_hat(1) = 2/10 * F_2/F_1 = 2/10 * 1/2 = 0.1
+/// assert!((good_turing_estimate(&fp, 1).unwrap() - 0.1).abs() < 1e-12);
+///
+/// // r=0: returns None (use unseen_mass_good_turing instead).
+/// assert_eq!(good_turing_estimate(&fp, 0), None);
+/// ```
+#[must_use]
+pub fn good_turing_estimate(fp: &Fingerprint, r: usize) -> Option<f64> {
+    if r == 0 {
+        return None;
+    }
+    let n = fp.sample_size() as f64;
+    if n <= 0.0 {
+        return None;
+    }
+    let f_r = fp.count_at(r);
+    if f_r == 0 {
+        return None;
+    }
+    let f_r1 = fp.count_at(r + 1) as f64;
+    Some(((r + 1) as f64 / n) * (f_r1 / f_r as f64))
+}
+
+/// Chao--Shen bias-corrected sample coverage.
+///
+/// An improved coverage estimator that uses both singletons and doubletons:
+///
+/// \[
+/// \hat C_{\text{CS}} = 1 - \frac{F_1}{n} \cdot \frac{(n-1) F_1}{(n-1) F_1 + 2 F_2}
+/// \]
+///
+/// When `F_2 > 0`, the correction factor is strictly less than 1, so
+/// `coverage_chao_shen >= coverage_good_turing`. When `F_2 = 0`, the correction
+/// factor equals 1 and both estimators coincide.
+///
+/// # References
+///
+/// - Chao & Shen (2003), "Nonparametric estimation of Shannon's index of diversity
+///   when there are unseen species in sample" (Environmental and Ecological Statistics)
+/// - Chao, Wang, Jost (2013), "Coverage-based rarefaction and extrapolation" --
+///   derives the coverage estimator from the Good--Turing frequency formula
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, coverage_chao_shen, coverage_good_turing};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+/// let c_cs = coverage_chao_shen(&fp);
+/// let c_gt = coverage_good_turing(&fp);
+/// // Chao-Shen is always at least as high as basic Good-Turing.
+/// assert!(c_cs >= c_gt - 1e-12);
+/// ```
+#[must_use]
+pub fn coverage_chao_shen(fp: &Fingerprint) -> f64 {
+    let n = fp.sample_size() as f64;
+    if n <= 0.0 {
+        return 1.0;
+    }
+    let f1 = fp.singletons() as f64;
+    if f1 <= 0.0 {
+        return 1.0;
+    }
+    let f2 = fp.doubletons() as f64;
+    let denom = (n - 1.0) * f1 + 2.0 * f2;
+    if denom <= 0.0 {
+        return (1.0 - f1 / n).clamp(0.0, 1.0);
+    }
+    let correction = (n - 1.0) * f1 / denom;
+    (1.0 - (f1 / n) * correction).clamp(0.0, 1.0)
 }
 
 /// Chao1 lower-bound estimator of the true support size.
@@ -534,6 +739,9 @@ pub fn coverage_good_turing(fp: &Fingerprint) -> f64 {
 /// - Chao & Jost (2012), "Coverage-based rarefaction and extrapolation" -- extends the
 ///   framework to abundance-based coverage
 ///
+/// For variance and confidence intervals, see [`support_chao1_with_ci`].
+/// For a reduced-bias variant using `F_3` and `F_4`, see [`support_ichao1`].
+///
 /// # Examples
 ///
 /// ```
@@ -556,6 +764,169 @@ pub fn support_chao1(fp: &Fingerprint) -> f64 {
     } else {
         s_obs + (f1 * (f1 - 1.0)) / 2.0
     }
+}
+
+/// Point estimate, variance, and 95% confidence interval for the Chao1 estimator.
+///
+/// Returned by [`support_chao1_with_ci`]. The confidence interval uses the
+/// log-transformation from Chao (1987), which guarantees the lower bound
+/// is at least `S_obs`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Chao1Estimate {
+    /// Point estimate (same value as [`support_chao1`]).
+    pub point: f64,
+    /// Estimated variance of the point estimate.
+    pub variance: f64,
+    /// Lower bound of the 95% CI.
+    pub ci_lower: f64,
+    /// Upper bound of the 95% CI.
+    pub ci_upper: f64,
+}
+
+/// Chao1 lower-bound estimator with variance and 95% confidence interval.
+///
+/// Returns the same point estimate as [`support_chao1`], plus the estimated
+/// variance (delta method) and a log-transformation 95% CI.
+///
+/// ## Variance
+///
+/// When \(F_2 > 0\):
+///
+/// \[
+/// \widehat{\text{Var}} = F_2 \left[
+///   \frac{q^2}{2} + q^3 + \frac{q^4}{4}
+/// \right], \quad q = \frac{F_1}{F_2}
+/// \]
+///
+/// When \(F_2 = 0\) (bias-corrected fallback):
+///
+/// \[
+/// \widehat{\text{Var}} = \frac{F_1(F_1-1)}{2}
+///     + \frac{F_1(2F_1-1)^2}{4}
+///     - \frac{F_1^4}{4\hat S}
+///     \]
+///
+/// ## Confidence interval
+///
+/// Uses the log-transformation CI from Chao (1987):
+///
+/// \[
+/// S_{\text{obs}} + \frac{T}{R} \;\le\; S \;\le\; S_{\text{obs}} + T \cdot R
+/// \]
+///
+/// where \(T = \hat S - S_{\text{obs}}\) and
+/// \(R = \exp\!\bigl(1.96 \sqrt{\ln(1 + V / T^2)}\bigr)\).
+///
+/// # References
+///
+/// - Chao (1984, 1987): variance formula and log-transformation CI
+/// - Chao & Colwell (2017), "Thirty years of progeny from Chao's inequality" (SORT) --
+///   comprehensive review of variance and CI methods
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, support_chao1_with_ci};
+///
+/// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+/// let est = support_chao1_with_ci(&fp);
+/// assert!(est.ci_lower <= est.point);
+/// assert!(est.point <= est.ci_upper);
+/// assert!(est.variance >= 0.0);
+/// assert!(est.ci_lower >= fp.observed_support() as f64 - 1e-12);
+/// ```
+#[must_use]
+pub fn support_chao1_with_ci(fp: &Fingerprint) -> Chao1Estimate {
+    let point = support_chao1(fp);
+    let s_obs = fp.observed_support() as f64;
+    let f1 = fp.singletons() as f64;
+    let f2 = fp.doubletons() as f64;
+
+    if f1 <= 0.0 {
+        return Chao1Estimate {
+            point,
+            variance: 0.0,
+            ci_lower: s_obs,
+            ci_upper: s_obs,
+        };
+    }
+
+    let variance = if f2 > 0.0 {
+        let q = f1 / f2;
+        f2 * (q * q / 2.0 + q * q * q + q * q * q * q / 4.0)
+    } else {
+        let term1 = f1 * (f1 - 1.0) / 2.0;
+        let term2 = f1 * (2.0 * f1 - 1.0).powi(2) / 4.0;
+        let term3 = if point > 0.0 {
+            f1.powi(4) / (4.0 * point)
+        } else {
+            0.0
+        };
+        (term1 + term2 - term3).max(0.0)
+    };
+
+    let t = point - s_obs;
+    let (ci_lower, ci_upper) = if t > 0.0 && variance > 0.0 {
+        let log_arg = (1.0 + variance / (t * t)).ln();
+        if log_arg > 0.0 {
+            let r = (1.96 * log_arg.sqrt()).exp();
+            (s_obs + t / r, s_obs + t * r)
+        } else {
+            (point, point)
+        }
+    } else {
+        (s_obs, s_obs)
+    };
+
+    Chao1Estimate {
+        point,
+        variance,
+        ci_lower,
+        ci_upper,
+    }
+}
+
+/// Improved Chao1 (iChao1) lower-bound estimator of the true support size.
+///
+/// Uses `F_3` and `F_4` in addition to `F_1` and `F_2` to reduce bias:
+///
+/// \[
+/// \hat S_{\text{iChao1}} = \hat S_{\text{Chao1}} + \frac{F_3}{4 F_4}
+///   \max\!\left(F_1 - \frac{F_2 F_3}{2 F_4},\; 0\right)
+/// \]
+///
+/// Falls back to [`support_chao1`] when `F_4 = 0` (correction undefined)
+/// or `F_3 = 0` (correction is zero).
+///
+/// # References
+///
+/// - Chiu, Wang, Walther, Chao (2014), "An improved nonparametric lower bound
+///   of species richness via a modified Good--Turing frequency formula"
+///   (Biometrics)
+///
+/// # Examples
+///
+/// ```
+/// use fingerprints::{Fingerprint, support_ichao1, support_chao1};
+///
+/// let fp = Fingerprint::from_counts([10, 5, 3, 2, 1, 1, 1, 1]).unwrap();
+/// let s_ichao = support_ichao1(&fp);
+/// let s_chao = support_chao1(&fp);
+/// // iChao1 is always at least Chao1.
+/// assert!(s_ichao >= s_chao - 1e-12);
+/// ```
+#[must_use]
+pub fn support_ichao1(fp: &Fingerprint) -> f64 {
+    let s_chao1 = support_chao1(fp);
+    let f3 = fp.count_at(3) as f64;
+    let f4 = fp.count_at(4) as f64;
+    if f4 <= 0.0 || f3 <= 0.0 {
+        return s_chao1;
+    }
+    let f1 = fp.singletons() as f64;
+    let f2 = fp.doubletons() as f64;
+    let correction = (f3 / (4.0 * f4)) * (f1 - f2 * f3 / (2.0 * f4)).max(0.0);
+    s_chao1 + correction
 }
 
 /// Selected hyperparameters for the Pitman–Yor entropy estimator.
@@ -1081,10 +1452,86 @@ mod tests {
         }
 
         #[test]
+        fn minimal_bias_unseen_mass_in_unit_interval(counts in prop::collection::vec(1usize..50, 1..200)) {
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let p0 = unseen_mass_minimal_bias(&fp);
+            prop_assert!(p0 >= -1e-12, "minimal-bias unseen mass {} < 0", p0);
+            prop_assert!(p0 <= 1.0 + 1e-12, "minimal-bias unseen mass {} > 1", p0);
+        }
+
+        #[test]
         fn chao1_support_is_at_least_observed(counts in prop::collection::vec(1usize..50, 1..200)) {
             let fp = Fingerprint::from_counts(counts).unwrap();
             let s_hat = support_chao1(&fp);
             prop_assert!(s_hat + 1e-12 >= fp.observed_support() as f64);
+        }
+
+        #[test]
+        fn good_turing_reindexing_identity(counts in prop::collection::vec(1usize..50, 2..200)) {
+            // The Good-Turing normalization identity (algebraic):
+            //   F_1/n + sum_{r=1}^{r_max} (r+1)/n * F_{r+1} = 1
+            // This is the re-indexing identity that proves GT estimates sum to 1.
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let n = fp.sample_size() as f64;
+            let mut total = fp.singletons() as f64 / n;
+            for r in 1..fp.f.len() {
+                total += (r + 1) as f64 / n * fp.count_at(r + 1) as f64;
+            }
+            prop_assert!((total - 1.0).abs() < 1e-12,
+                "GT re-indexing identity failed: total = {}", total);
+        }
+
+        #[test]
+        fn good_turing_agrees_with_formula(counts in prop::collection::vec(1usize..50, 2..200)) {
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let n = fp.sample_size() as f64;
+            for r in 1..fp.f.len() {
+                let f_r = fp.count_at(r);
+                if f_r > 0 {
+                    let theta = good_turing_estimate(&fp, r).unwrap();
+                    let f_r1 = fp.count_at(r + 1) as f64;
+                    let expected = ((r + 1) as f64 / n) * (f_r1 / f_r as f64);
+                    prop_assert!((theta - expected).abs() < 1e-14,
+                        "GT at r={}: got {} expected {}", r, theta, expected);
+                } else {
+                    prop_assert!(good_turing_estimate(&fp, r).is_none(),
+                        "GT at r={} should be None (F_r=0)", r);
+                }
+            }
+        }
+
+        #[test]
+        fn coverage_chao_shen_ge_basic(counts in prop::collection::vec(1usize..50, 1..200)) {
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let c_cs = coverage_chao_shen(&fp);
+            let c_gt = coverage_good_turing(&fp);
+            prop_assert!(c_cs >= c_gt - 1e-12,
+                "Chao-Shen {} < basic GT {}", c_cs, c_gt);
+            prop_assert!(c_cs >= 0.0 - 1e-12);
+            prop_assert!(c_cs <= 1.0 + 1e-12);
+        }
+
+        #[test]
+        fn chao1_ci_contains_point(counts in prop::collection::vec(1usize..50, 1..200)) {
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let est = support_chao1_with_ci(&fp);
+            prop_assert!(est.ci_lower <= est.point + 1e-12,
+                "CI lower {} > point {}", est.ci_lower, est.point);
+            prop_assert!(est.ci_upper >= est.point - 1e-12,
+                "CI upper {} < point {}", est.ci_upper, est.point);
+            prop_assert!(est.variance >= -1e-12,
+                "variance {} < 0", est.variance);
+            prop_assert!(est.ci_lower >= fp.observed_support() as f64 - 1e-12,
+                "CI lower {} < S_obs {}", est.ci_lower, fp.observed_support());
+        }
+
+        #[test]
+        fn ichao1_ge_chao1(counts in prop::collection::vec(1usize..50, 1..200)) {
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let s_ichao = support_ichao1(&fp);
+            let s_chao = support_chao1(&fp);
+            prop_assert!(s_ichao >= s_chao - 1e-12,
+                "iChao1 {} < Chao1 {}", s_ichao, s_chao);
         }
 
         #[test]
@@ -1543,6 +1990,164 @@ mod tests {
     fn coverage_no_singletons_is_one() {
         let fp = Fingerprint::from_counts([4, 4, 4]).unwrap();
         assert!((coverage_good_turing(&fp) - 1.0).abs() < 1e-15);
+    }
+
+    // ---- good_turing_estimate ----
+
+    #[test]
+    fn good_turing_max_count_is_zero() {
+        let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+        let r_max = fp.f.len() - 1; // = 5
+        let theta = good_turing_estimate(&fp, r_max).unwrap();
+        assert!(theta.abs() < 1e-15, "max-count GT should be 0, got {theta}");
+    }
+
+    #[test]
+    fn good_turing_zero_fr_returns_none() {
+        // counts [5, 3, 1, 1]: F_2 = 0, F_4 = 0.
+        let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+        assert!(good_turing_estimate(&fp, 2).is_none());
+        assert!(good_turing_estimate(&fp, 4).is_none());
+        assert!(good_turing_estimate(&fp, 0).is_none());
+    }
+
+    #[test]
+    fn good_turing_known_values() {
+        // counts [3, 3, 2, 1, 1]: n=10, F_1=2, F_2=1, F_3=2
+        let fp = Fingerprint::from_counts([3, 3, 2, 1, 1]).unwrap();
+        assert_eq!(fp.sample_size(), 10);
+        // theta_hat(1) = 2/10 * F_2/F_1 = 2/10 * 1/2 = 0.1
+        assert!((good_turing_estimate(&fp, 1).unwrap() - 0.1).abs() < 1e-12);
+        // theta_hat(2) = 3/10 * F_3/F_2 = 3/10 * 2/1 = 0.6
+        assert!((good_turing_estimate(&fp, 2).unwrap() - 0.6).abs() < 1e-12);
+    }
+
+    // ---- unseen_mass_minimal_bias ----
+
+    #[test]
+    fn minimal_bias_first_term_is_good_turing() {
+        // For a sample with only singletons (F_1 = n, F_i = 0 for i > 1),
+        // minimal-bias = F_1/C(n,1) = F_1/n = Good-Turing.
+        let fp = Fingerprint::from_counts([1, 1, 1, 1, 1]).unwrap();
+        let mb = unseen_mass_minimal_bias(&fp);
+        let gt = unseen_mass_good_turing(&fp);
+        assert!(
+            (mb - gt).abs() < 1e-12,
+            "minimal-bias {} != Good-Turing {} for all-singletons",
+            mb,
+            gt
+        );
+    }
+
+    #[test]
+    fn minimal_bias_no_singletons_is_zero() {
+        // No singletons: all F_i with odd i are 0, so positive terms vanish.
+        // But F_2 contributes a negative term: -F_2/C(n,2).
+        // For counts [4, 4, 4]: F_4=3, n=12, mb = -3/C(12,4) = -3/495.
+        // Clamped to 0.
+        let fp = Fingerprint::from_counts([4, 4, 4]).unwrap();
+        let mb = unseen_mass_minimal_bias(&fp);
+        assert!(
+            mb.abs() < 1e-12,
+            "no-singletons minimal-bias should be ~0, got {}",
+            mb
+        );
+    }
+
+    #[test]
+    fn minimal_bias_known_value() {
+        // counts [3, 2, 1]: n=6, F_1=1, F_2=1, F_3=1
+        // mb = F_1/C(6,1) - F_2/C(6,2) + F_3/C(6,3)
+        //    = 1/6 - 1/15 + 1/20
+        //    = 10/60 - 4/60 + 3/60 = 9/60 = 3/20 = 0.15
+        let fp = Fingerprint::from_counts([3, 2, 1]).unwrap();
+        assert_eq!(fp.sample_size(), 6);
+        let mb = unseen_mass_minimal_bias(&fp);
+        assert!((mb - 0.15).abs() < 1e-12, "expected 0.15, got {}", mb);
+    }
+
+    // ---- coverage_chao_shen ----
+
+    #[test]
+    fn coverage_chao_shen_no_singletons_is_one() {
+        let fp = Fingerprint::from_counts([4, 4, 4]).unwrap();
+        assert!((coverage_chao_shen(&fp) - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn coverage_chao_shen_known_value() {
+        // counts [5, 3, 2, 1, 1]: n=12, F_1=2, F_2=1
+        let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+        let n = 12.0;
+        let f1 = 2.0;
+        let f2 = 1.0;
+        let expected = 1.0 - (f1 / n) * ((n - 1.0) * f1 / ((n - 1.0) * f1 + 2.0 * f2));
+        assert!((coverage_chao_shen(&fp) - expected).abs() < 1e-12);
+    }
+
+    // ---- support_chao1_with_ci ----
+
+    #[test]
+    fn chao1_ci_no_singletons() {
+        let fp = Fingerprint::from_counts([4, 4, 4]).unwrap();
+        let est = support_chao1_with_ci(&fp);
+        let s_obs = fp.observed_support() as f64;
+        assert!((est.point - s_obs).abs() < 1e-12);
+        assert!(est.variance.abs() < 1e-12);
+        assert!((est.ci_lower - s_obs).abs() < 1e-12);
+        assert!((est.ci_upper - s_obs).abs() < 1e-12);
+    }
+
+    #[test]
+    fn chao1_ci_f2_zero_fallback() {
+        // All singletons: f1=5, f2=0, S_hat = 5 + 5*4/2 = 15
+        let fp = Fingerprint::from_counts([1, 1, 1, 1, 1]).unwrap();
+        let est = support_chao1_with_ci(&fp);
+        assert!((est.point - 15.0).abs() < 1e-12);
+        assert!(est.variance > 0.0);
+        assert!(est.ci_lower <= est.point);
+        assert!(est.ci_upper >= est.point);
+        assert!(est.ci_lower >= 5.0 - 1e-12);
+    }
+
+    // ---- support_ichao1 ----
+
+    #[test]
+    fn ichao1_equals_chao1_when_f4_zero() {
+        let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
+        assert_eq!(fp.count_at(4), 0);
+        assert!((support_ichao1(&fp) - support_chao1(&fp)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ichao1_known_value() {
+        // counts [10, 5, 3, 2, 1, 1, 1, 1]: F_1=4, F_2=1, F_3=1, F_4=0, F_5=1, F_10=1
+        // f4=0, so iChao1 == Chao1
+        let fp = Fingerprint::from_counts([10, 5, 3, 2, 1, 1, 1, 1]).unwrap();
+        assert!((support_ichao1(&fp) - support_chao1(&fp)).abs() < 1e-12);
+
+        // Build a case where f3 > 0 and f4 > 0:
+        // counts [4, 4, 3, 3, 2, 2, 1, 1]: F_1=2, F_2=2, F_3=2, F_4=2
+        let fp2 = Fingerprint::from_counts([4, 4, 3, 3, 2, 2, 1, 1]).unwrap();
+        let f1 = 2.0_f64;
+        let f2 = 2.0;
+        let f3 = 2.0;
+        let f4 = 2.0;
+        let chao1 = support_chao1(&fp2);
+        let correction = (f3 / (4.0 * f4)) * (f1 - f2 * f3 / (2.0 * f4)).max(0.0);
+        let expected = chao1 + correction;
+        assert!((support_ichao1(&fp2) - expected).abs() < 1e-12);
+    }
+
+    // ---- count_at ----
+
+    #[test]
+    fn count_at_matches_singletons_doubletons() {
+        let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
+        assert_eq!(fp.count_at(1), fp.singletons());
+        assert_eq!(fp.count_at(2), fp.doubletons());
+        assert_eq!(fp.count_at(0), 0);
+        assert_eq!(fp.count_at(100), 0);
     }
 
     // ---- all-singletons edge case for all estimators ----
