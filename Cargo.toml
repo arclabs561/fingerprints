@@ -1,8 +1,8 @@
 [package]
 name = "fingerprints"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
-description = "Property estimation from samples: fingerprints, entropy/support estimators, and (future) support reconstruction"
+description = "Property estimation from samples: fingerprints, entropy and support estimators"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/arclabs561/fingerprints"
 homepage = "https://github.com/arclabs561/fingerprints"
@@ -10,12 +10,15 @@ readme = "README.md"
 keywords = ["statistics", "estimation", "entropy", "mutual-information", "support"]
 categories = ["algorithms", "science", "mathematics"]
 
+[features]
+default = ["lp"]
+lp = ["dep:minilp"]
+
 [dependencies]
 thiserror = "2.0"
-logp = "0.1.3"
-minilp = "0.2"
+logp = "0.2.0"
+minilp = { version = "0.2", optional = true }
 
 [dev-dependencies]
 proptest = "1.9"
 textprep = "0.1.3"
-

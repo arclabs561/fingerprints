@@ -56,22 +56,31 @@ use thiserror::Error;
 
 pub mod coverage;
 pub mod pml;
+#[cfg(feature = "lp")]
 pub mod vv;
 
 /// Errors for sample-based estimators.
 #[derive(Debug, Error)]
-pub enum PropEstError {
+pub enum EstimationError {
+    /// The input sample was empty.
     #[error("empty sample")]
     EmptySample,
 
+    /// Invalid input (with reason).
     #[error("invalid input: {0}")]
     Invalid(&'static str),
 
+    /// Error propagated from logp.
     #[error(transparent)]
     Logp(#[from] logp::Error),
 }
 
-pub type Result<T> = core::result::Result<T, PropEstError>;
+/// Deprecated alias for [`EstimationError`].
+#[deprecated(since = "0.2.0", note = "renamed to EstimationError")]
+pub type PropEstError = EstimationError;
+
+/// Result type for estimation operations.
+pub type Result<T> = core::result::Result<T, EstimationError>;
 
 /// Convert per-symbol counts into an empirical distribution on the observed support.
 ///
@@ -86,8 +95,8 @@ pub type Result<T> = core::result::Result<T, PropEstError>;
 ///
 /// # Errors
 ///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty, or
-/// [`PropEstError::Invalid`] if all counts are zero.
+/// Returns [`EstimationError::EmptySample`] if `counts` is empty, or
+/// [`EstimationError::Invalid`] if all counts are zero.
 ///
 /// # Examples
 ///
@@ -100,10 +109,10 @@ pub type Result<T> = core::result::Result<T, PropEstError>;
 /// ```
 pub fn empirical_simplex_from_counts(counts: &[usize]) -> Result<Vec<f64>> {
     if counts.is_empty() {
-        return Err(PropEstError::EmptySample);
+        return Err(EstimationError::EmptySample);
     }
     let n: usize = counts.iter().sum();
-    let n = NonZeroUsize::new(n).ok_or(PropEstError::Invalid("sum(counts) == 0"))?;
+    let n = NonZeroUsize::new(n).ok_or(EstimationError::Invalid("sum(counts) == 0"))?;
     Ok(counts
         .iter()
         .map(|&c| (c as f64) / (n.get() as f64))
@@ -140,7 +149,48 @@ pub fn empirical_simplex_from_counts(counts: &[usize]) -> Result<Vec<f64>> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fingerprint {
     /// Counts-of-counts (index = multiplicity).
-    pub f: Vec<usize>,
+    f: Vec<usize>,
+}
+
+/// `ln(n!)` via Stirling's approximation (exact for n <= 20 via lookup).
+pub(crate) fn ln_factorial(n: usize) -> f64 {
+    // Exact values for small n (avoids rounding issues in combinatorics).
+    const EXACT: [f64; 21] = [
+        0.0,                     // 0!
+        0.0,                     // 1!
+        core::f64::consts::LN_2, // 2! = 2
+        1.791_759_469_228_055,   // ln(6)
+        3.178_053_830_347_946_5, // ln(24)
+        4.787_491_742_782_046,   // ln(120)
+        6.579_251_212_010_101,   // ln(720)
+        8.525_161_361_065_415,   // ln(5040)
+        10.604_602_902_745_251,  // ln(40320)
+        12.801_827_480_081_469,  // ln(362880)
+        15.104_412_573_075_516,  // ln(3628800)
+        17.502_307_845_873_887,  // ln(39916800)
+        19.987_214_495_661_885,  // ln(479001600)
+        22.552_163_853_123_42,   // ln(6227020800)
+        25.191_221_182_738_68,   // ln(87178291200)
+        27.899_271_383_840_89,   // ln(1307674368000)
+        30.671_860_128_818_843,  // ln(20922789888000)
+        33.505_073_450_136_89,   // ln(355687428096000)
+        36.395_445_208_033_05,   // ln(6402373705728000)
+        39.339_884_187_199_49,   // ln(121645100408832000)
+        42.335_616_460_753_485,  // ln(2432902008176640000)
+    ];
+    if n < EXACT.len() {
+        return EXACT[n];
+    }
+    // Stirling: ln(n!) ~ n ln(n) - n + 0.5 ln(2 pi n) + 1/(12n) - 1/(360 n^3)
+    let nf = n as f64;
+    nf * nf.ln() - nf + 0.5 * (2.0 * core::f64::consts::PI * nf).ln() + 1.0 / (12.0 * nf)
+        - 1.0 / (360.0 * nf * nf * nf)
+}
+
+/// Convert nats to bits.
+#[must_use]
+pub fn to_bits(nats: f64) -> f64 {
+    nats / core::f64::consts::LN_2
 }
 
 impl Fingerprint {
@@ -153,19 +203,19 @@ impl Fingerprint {
     ///
     /// # Errors
     ///
-    /// Returns [`PropEstError::EmptySample`] if the iterator is empty, or
-    /// [`PropEstError::Invalid`] if all counts are zero.
+    /// Returns [`EstimationError::EmptySample`] if the iterator is empty, or
+    /// [`EstimationError::Invalid`] if all counts are zero.
     pub fn from_counts<I>(counts: I) -> Result<Self>
     where
         I: IntoIterator<Item = usize>,
     {
         let counts: Vec<usize> = counts.into_iter().collect();
         if counts.is_empty() {
-            return Err(PropEstError::EmptySample);
+            return Err(EstimationError::EmptySample);
         }
         let max_c = *counts.iter().max().unwrap_or(&0);
         if max_c == 0 {
-            return Err(PropEstError::Invalid("all counts are zero"));
+            return Err(EstimationError::Invalid("all counts are zero"));
         }
         let mut f = vec![0usize; max_c + 1];
         for c in counts {
@@ -188,8 +238,8 @@ impl Fingerprint {
     ///
     /// # Errors
     ///
-    /// Returns [`PropEstError::Invalid`] if `f[0] != 0` or if all entries are zero.
-    /// Returns [`PropEstError::EmptySample`] if the vector is empty.
+    /// Returns [`EstimationError::Invalid`] if `f[0] != 0` or if all entries are zero.
+    /// Returns [`EstimationError::EmptySample`] if the vector is empty.
     ///
     /// # Examples
     ///
@@ -204,17 +254,22 @@ impl Fingerprint {
     /// ```
     pub fn from_frequency_counts(f: &[usize]) -> Result<Self> {
         if f.is_empty() {
-            return Err(PropEstError::EmptySample);
+            return Err(EstimationError::EmptySample);
         }
         if f.first().copied().unwrap_or(0) != 0 {
-            return Err(PropEstError::Invalid(
+            return Err(EstimationError::Invalid(
                 "f[0] must be 0 (unseen count is not stored)",
             ));
         }
         if f.iter().skip(1).all(|&fi| fi == 0) {
-            return Err(PropEstError::Invalid("all frequency counts are zero"));
+            return Err(EstimationError::Invalid("all frequency counts are zero"));
         }
-        Ok(Self { f: f.to_vec() })
+        let mut v = f.to_vec();
+        // Strip trailing zeros so semantically-identical fingerprints are equal.
+        while v.len() > 1 && v.last() == Some(&0) {
+            v.pop();
+        }
+        Ok(Self { f: v })
     }
 
     /// Total sample size: \(n = \sum_{i \ge 1} i \cdot F_i\).
@@ -269,6 +324,35 @@ impl Fingerprint {
     pub fn count_at(&self, r: usize) -> usize {
         self.f.get(r).copied().unwrap_or(0)
     }
+
+    /// Number of species observed exactly `j` times (0-indexed: f[0] is always 0).
+    #[must_use]
+    pub fn count(&self, j: usize) -> usize {
+        self.f.get(j).copied().unwrap_or(0)
+    }
+
+    /// Maximum frequency observed.
+    #[must_use]
+    pub fn max_freq(&self) -> usize {
+        self.f.len().saturating_sub(1)
+    }
+
+    /// Iterator over (frequency, count) pairs, skipping zeros.
+    pub fn iter(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.f.iter().copied().enumerate().filter(|&(_, c)| c > 0)
+    }
+
+    /// Raw fingerprint vector (0-indexed).
+    #[must_use]
+    pub fn as_slice(&self) -> &[usize] {
+        &self.f
+    }
+
+    /// Number of distinct species observed (alias for [`observed_support`]).
+    #[must_use]
+    pub fn observed_species(&self) -> usize {
+        self.f.iter().skip(1).sum()
+    }
 }
 
 /// Plug-in (empirical) entropy estimator (nats) from a fingerprint.
@@ -307,29 +391,6 @@ pub fn entropy_plugin_nats(fp: &Fingerprint) -> f64 {
         h -= (fi as f64) * p * p.ln();
     }
     h
-}
-
-/// Plug-in (empirical) entropy estimator (nats) from per-symbol counts.
-///
-/// Convenience wrapper: builds the empirical simplex from `counts` and delegates to
-/// `logp::entropy_unchecked`. Equivalent to [`entropy_plugin_nats`] applied to the
-/// fingerprint derived from the same counts.
-///
-/// # Errors
-///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
-///
-/// # Examples
-///
-/// ```
-/// use fingerprints::entropy_plugin_nats_from_counts;
-///
-/// let h = entropy_plugin_nats_from_counts(&[3, 3]).unwrap();
-/// assert!((h - 2.0_f64.ln()).abs() < 1e-12);
-/// ```
-pub fn entropy_plugin_nats_from_counts(counts: &[usize]) -> Result<f64> {
-    let p = empirical_simplex_from_counts(counts)?;
-    Ok(logp::entropy_unchecked(&p))
 }
 
 /// Miller--Madow bias-corrected entropy estimator (nats).
@@ -440,28 +501,6 @@ pub fn entropy_jackknife_nats(fp: &Fingerprint) -> f64 {
     }
 
     n * h_n - (n - 1.0) * e_h_n1
-}
-
-/// Jackknife (delete-1) entropy estimator (nats) from per-symbol counts.
-///
-/// Convenience wrapper: builds a [`Fingerprint`] from `counts` and delegates to
-/// [`entropy_jackknife_nats`].
-///
-/// # Errors
-///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
-///
-/// # Examples
-///
-/// ```
-/// use fingerprints::entropy_jackknife_nats_from_counts;
-///
-/// let h = entropy_jackknife_nats_from_counts(&[5, 3, 2]).unwrap();
-/// assert!(h >= 0.0);
-/// ```
-pub fn entropy_jackknife_nats_from_counts(counts: &[usize]) -> Result<f64> {
-    let fp = Fingerprint::from_counts(counts.iter().copied())?;
-    Ok(entropy_jackknife_nats(&fp))
 }
 
 /// Good--Turing coverage estimate: the estimated **unseen probability mass**.
@@ -1269,19 +1308,6 @@ pub fn entropy_pitman_yor_nats(fp: &Fingerprint) -> f64 {
     entropy_dpym_nats(fp, params.d, params.alpha)
 }
 
-/// Pitman--Yor entropy estimator (nats) from per-symbol counts.
-///
-/// Convenience wrapper: builds a [`Fingerprint`] and delegates to
-/// [`entropy_pitman_yor_nats`].
-///
-/// # Errors
-///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
-pub fn entropy_pitman_yor_nats_from_counts(counts: &[usize]) -> Result<f64> {
-    let fp = Fingerprint::from_counts(counts.iter().copied())?;
-    Ok(entropy_pitman_yor_nats(&fp))
-}
-
 /// Opinionated default entropy estimator (nats).
 ///
 /// A single-call “good default” for the **unseen regime**:
@@ -1305,89 +1331,6 @@ pub fn entropy_default_nats(fp: &Fingerprint) -> f64 {
     entropy_pitman_yor_nats(fp)
 }
 
-/// Opinionated default entropy estimator (nats) from per-symbol counts.
-///
-/// Convenience wrapper: builds a [`Fingerprint`] and delegates to
-/// [`entropy_default_nats`].
-///
-/// # Errors
-///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
-pub fn entropy_default_nats_from_counts(counts: &[usize]) -> Result<f64> {
-    entropy_pitman_yor_nats_from_counts(counts)
-}
-
-/// Plug-in entropy estimator in **bits** (\(\log_2\)).
-///
-/// Equivalent to `entropy_plugin_nats(fp) / ln(2)`.
-///
-/// # Examples
-///
-/// ```
-/// use fingerprints::{Fingerprint, entropy_plugin_bits};
-///
-/// let fp = Fingerprint::from_counts([4, 4]).unwrap();
-/// assert!((entropy_plugin_bits(&fp) - 1.0).abs() < 1e-12);
-/// ```
-#[must_use]
-pub fn entropy_plugin_bits(fp: &Fingerprint) -> f64 {
-    entropy_plugin_nats(fp) / logp::LN_2
-}
-
-/// Miller--Madow bias-corrected entropy estimator in **bits**.
-///
-/// Equivalent to `entropy_miller_madow_nats(fp) / ln(2)`.
-#[must_use]
-pub fn entropy_miller_madow_bits(fp: &Fingerprint) -> f64 {
-    entropy_miller_madow_nats(fp) / logp::LN_2
-}
-
-/// Jackknife (delete-1) entropy estimator in **bits**.
-///
-/// Equivalent to `entropy_jackknife_nats(fp) / ln(2)`.
-#[must_use]
-pub fn entropy_jackknife_bits(fp: &Fingerprint) -> f64 {
-    entropy_jackknife_nats(fp) / logp::LN_2
-}
-
-/// Pitman--Yor entropy estimator in **bits**.
-///
-/// Equivalent to `entropy_pitman_yor_nats(fp) / ln(2)`.
-#[must_use]
-pub fn entropy_pitman_yor_bits(fp: &Fingerprint) -> f64 {
-    entropy_pitman_yor_nats(fp) / logp::LN_2
-}
-
-/// Pitman--Yor entropy estimator (bits) from per-symbol counts.
-///
-/// Convenience wrapper: equivalent to `entropy_pitman_yor_nats_from_counts(counts)? / ln(2)`.
-///
-/// # Errors
-///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
-pub fn entropy_pitman_yor_bits_from_counts(counts: &[usize]) -> Result<f64> {
-    Ok(entropy_pitman_yor_nats_from_counts(counts)? / logp::LN_2)
-}
-
-/// Opinionated default entropy estimator in **bits**.
-///
-/// Equivalent to `entropy_default_nats(fp) / ln(2)`.
-#[must_use]
-pub fn entropy_default_bits(fp: &Fingerprint) -> f64 {
-    entropy_default_nats(fp) / logp::LN_2
-}
-
-/// Opinionated default entropy estimator (bits) from per-symbol counts.
-///
-/// Convenience wrapper: equivalent to `entropy_default_nats_from_counts(counts)? / ln(2)`.
-///
-/// # Errors
-///
-/// Returns [`PropEstError::EmptySample`] if `counts` is empty.
-pub fn entropy_default_bits_from_counts(counts: &[usize]) -> Result<f64> {
-    Ok(entropy_default_nats_from_counts(counts)? / logp::LN_2)
-}
-
 /// Plug-in **sample code length** (nats) for the observed sample.
 ///
 /// Concretely: if you encode each observation using the plug-in (empirical) model \(\hat p\),
@@ -1403,14 +1346,6 @@ pub fn entropy_default_bits_from_counts(counts: &[usize]) -> Result<f64> {
 #[must_use]
 pub fn sample_codelen_plugin_nats(fp: &Fingerprint) -> f64 {
     (fp.sample_size() as f64) * entropy_plugin_nats(fp)
-}
-
-/// Plug-in sample code length in **bits**.
-///
-/// Equivalent to `sample_codelen_plugin_nats(fp) / ln(2)`.
-#[must_use]
-pub fn sample_codelen_plugin_bits(fp: &Fingerprint) -> f64 {
-    sample_codelen_plugin_nats(fp) / logp::LN_2
 }
 
 #[cfg(test)]
@@ -1541,7 +1476,8 @@ mod tests {
             // and delegating to `logp`.
             let fp = Fingerprint::from_counts(counts.clone()).unwrap();
             let h_fp = entropy_plugin_nats(&fp);
-            let h_logp = entropy_plugin_nats_from_counts(&counts).unwrap();
+            let p = empirical_simplex_from_counts(&counts).unwrap();
+            let h_logp = logp::entropy_unchecked(&p);
             prop_assert!((h_fp - h_logp).abs() < 1e-12);
         }
 
@@ -1557,7 +1493,8 @@ mod tests {
         fn jackknife_counts_matches_fingerprint(counts in prop::collection::vec(1usize..50, 2..200)) {
             let fp = Fingerprint::from_counts(counts.clone()).unwrap();
             let h1 = entropy_jackknife_nats(&fp);
-            let h2 = entropy_jackknife_nats_from_counts(&counts).unwrap();
+            let fp2 = Fingerprint::from_counts(counts.iter().copied()).unwrap();
+            let h2 = entropy_jackknife_nats(&fp2);
             prop_assert!((h1 - h2).abs() < 1e-12);
         }
 
@@ -1611,7 +1548,8 @@ mod tests {
         fn pitman_yor_from_counts_matches_fingerprint(counts in prop::collection::vec(1usize..50, 1..200)) {
             let fp = Fingerprint::from_counts(counts.clone()).unwrap();
             let h_fp = entropy_pitman_yor_nats(&fp);
-            let h_counts = entropy_pitman_yor_nats_from_counts(&counts).unwrap();
+            let fp2 = Fingerprint::from_counts(counts.iter().copied()).unwrap();
+            let h_counts = entropy_pitman_yor_nats(&fp2);
             prop_assert!((h_fp - h_counts).abs() < 1e-12);
         }
 
@@ -1641,9 +1579,9 @@ mod tests {
             prop_assert!(h.is_finite());
             prop_assert!(h >= -1e-12);
 
-            // Bits wrapper is consistent with nats.
-            let hb = entropy_pitman_yor_bits(&fp);
-            prop_assert!((hb - h / logp::LN_2).abs() < 1e-12);
+            // to_bits is consistent with nats.
+            let hb = to_bits(h);
+            prop_assert!((hb - h / core::f64::consts::LN_2).abs() < 1e-12);
         }
     }
 
@@ -1815,8 +1753,8 @@ mod tests {
         assert!((entropy_pitman_yor_nats(&fp) - h_true).abs() < 1e-12);
 
         // Bits conversion consistency.
-        let h_bits_nats = entropy_plugin_nats(&fp) / logp::LN_2;
-        assert!((entropy_plugin_bits(&fp) - h_bits_nats).abs() < 1e-12);
+        let h_bits_nats = entropy_plugin_nats(&fp) / core::f64::consts::LN_2;
+        assert!((to_bits(entropy_plugin_nats(&fp)) - h_bits_nats).abs() < 1e-12);
     }
 
     #[test]
@@ -1842,139 +1780,37 @@ mod tests {
         let cl = sample_codelen_plugin_nats(&fp);
         assert!((cl - n * h).abs() < 1e-12);
 
-        let cl_bits = sample_codelen_plugin_bits(&fp);
-        assert!((cl_bits - cl / logp::LN_2).abs() < 1e-12);
+        let cl_bits = to_bits(cl);
+        assert!((cl_bits - cl / core::f64::consts::LN_2).abs() < 1e-12);
     }
 
-    // ---- logp cross-crate: total_bregman_divergence normalization ----
-
-    #[test]
-    fn total_bregman_divergence_normalization_selfinfo() {
-        // For any p, total_bregman_divergence(p, p, F) = 0 (since Bregman D_F(x,x) = 0).
-        let gen = logp::SquaredL2;
-        let p = [0.3, 0.2, 0.5];
-        let mut grad = [0.0; 3];
-        let d = logp::total_bregman_divergence(&gen, &p, &p, &mut grad).unwrap();
-        assert!(
-            d.abs() < 1e-12,
-            "total Bregman self-divergence should be zero, got {d}"
-        );
-    }
-
-    #[test]
-    fn total_bregman_divergence_nonneg() {
-        let gen = logp::SquaredL2;
-        let p = [0.4, 0.3, 0.3];
-        let q = [0.5, 0.2, 0.3];
-        let mut grad = [0.0; 3];
-        let d = logp::total_bregman_divergence(&gen, &p, &q, &mut grad).unwrap();
-        assert!(
-            d >= -1e-12,
-            "total Bregman divergence should be non-negative, got {d}"
-        );
-    }
-
-    #[test]
-    fn total_bregman_divergence_le_bregman() {
-        // Total Bregman <= Bregman (normalization divides by >= 1).
-        let gen = logp::SquaredL2;
-        let p = [1.0, 3.0];
-        let q = [2.0, 5.0];
-        let mut grad_tb = [0.0; 2];
-        let mut grad_b = [0.0; 2];
-        let tb = logp::total_bregman_divergence(&gen, &p, &q, &mut grad_tb).unwrap();
-        let b = logp::bregman_divergence(&gen, &p, &q, &mut grad_b).unwrap();
-        assert!(tb <= b + 1e-12, "total Bregman {tb} > Bregman {b}");
-    }
-
-    // ---- logp cross-crate: rho_alpha ----
-
-    #[test]
-    fn rho_alpha_self_is_one() {
-        // rho_alpha(p, p, alpha) = sum p_i^alpha * p_i^{1-alpha} = sum p_i = 1.
-        let p = [0.25, 0.25, 0.5];
-        for alpha in [0.0, 0.5, 1.0, 2.0, -1.0] {
-            let r = logp::rho_alpha(&p, &p, alpha, 1e-9).unwrap();
-            assert!(
-                (r - 1.0).abs() < 1e-12,
-                "rho_alpha(p,p,{alpha}) = {r}, expected 1.0"
-            );
-        }
-    }
-
-    #[test]
-    fn rho_alpha_bounded_by_one() {
-        // For alpha in (0,1), rho_alpha(p, q) <= 1 by Holder's inequality.
-        let p = [0.6, 0.4];
-        let q = [0.3, 0.7];
-        let r = logp::rho_alpha(&p, &q, 0.5, 1e-9).unwrap();
-        assert!(
-            r <= 1.0 + 1e-12,
-            "rho_alpha should be <= 1 for alpha in (0,1)"
-        );
-        assert!(r >= 0.0 - 1e-12, "rho_alpha should be non-negative");
-    }
-
-    // ---- logp cross-crate: hellinger triangle inequality ----
-
-    proptest! {
-        #![proptest_config(ProptestConfig { cases: 128, .. ProptestConfig::default() })]
-
-        #[test]
-        fn hellinger_triangle_inequality(
-            a1 in 0.01f64..10.0,
-            a2 in 0.01f64..10.0,
-            a3 in 0.01f64..10.0,
-            b1 in 0.01f64..10.0,
-            b2 in 0.01f64..10.0,
-            b3 in 0.01f64..10.0,
-            c1 in 0.01f64..10.0,
-            c2 in 0.01f64..10.0,
-            c3 in 0.01f64..10.0,
-        ) {
-            // Normalize to simplices.
-            let sa = a1 + a2 + a3;
-            let p = [a1/sa, a2/sa, a3/sa];
-            let sb = b1 + b2 + b3;
-            let q = [b1/sb, b2/sb, b3/sb];
-            let sc = c1 + c2 + c3;
-            let r = [c1/sc, c2/sc, c3/sc];
-
-            let h_pq = logp::hellinger(&p, &q, 1e-9).unwrap();
-            let h_qr = logp::hellinger(&q, &r, 1e-9).unwrap();
-            let h_pr = logp::hellinger(&p, &r, 1e-9).unwrap();
-
-            // Hellinger distance satisfies the triangle inequality.
-            prop_assert!(h_pr <= h_pq + h_qr + 1e-9,
-                "triangle ineq violated: H(p,r)={h_pr} > H(p,q)={h_pq} + H(q,r)={h_qr}");
-        }
-    }
+    // (Cross-crate logp tests removed -- they belong in the logp crate.)
 
     // ---- from_frequency_counts constructor ----
 
     #[test]
     fn from_frequency_counts_roundtrip() {
         let fp1 = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
-        let fp2 = Fingerprint::from_frequency_counts(&fp1.f).unwrap();
+        let fp2 = Fingerprint::from_frequency_counts(fp1.as_slice()).unwrap();
         assert_eq!(fp1, fp2);
     }
 
     #[test]
     fn from_frequency_counts_rejects_nonzero_f0() {
         let err = Fingerprint::from_frequency_counts(&[1, 2, 3]).unwrap_err();
-        assert!(matches!(err, PropEstError::Invalid(_)));
+        assert!(matches!(err, EstimationError::Invalid(_)));
     }
 
     #[test]
     fn from_frequency_counts_rejects_all_zero() {
         let err = Fingerprint::from_frequency_counts(&[0, 0, 0]).unwrap_err();
-        assert!(matches!(err, PropEstError::Invalid(_)));
+        assert!(matches!(err, EstimationError::Invalid(_)));
     }
 
     #[test]
     fn from_frequency_counts_rejects_empty() {
         let err = Fingerprint::from_frequency_counts(&[]).unwrap_err();
-        assert!(matches!(err, PropEstError::EmptySample));
+        assert!(matches!(err, EstimationError::EmptySample));
     }
 
     // ---- coverage_good_turing ----
@@ -1998,7 +1834,7 @@ mod tests {
     #[test]
     fn good_turing_max_count_is_zero() {
         let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
-        let r_max = fp.f.len() - 1; // = 5
+        let r_max = fp.max_freq(); // = 5
         let theta = good_turing_estimate(&fp, r_max).unwrap();
         assert!(theta.abs() < 1e-15, "max-count GT should be 0, got {theta}");
     }
@@ -2299,5 +2135,51 @@ mod tests {
             }
         }
         counts
+    }
+
+    // ---- Chao1 lower-bound property test ----
+
+    #[test]
+    fn chao1_is_lower_bound_on_average() {
+        // Chao1 is a lower bound in expectation: E[Chao1] <= S_true.
+        // Individual samples can exceed S (it is a biased estimator), but
+        // the average over many samples should not exceed the true support.
+        let s = 100usize;
+        let alpha = 1.5_f64;
+
+        let unnorm: Vec<f64> = (1..=s).map(|i| 1.0 / (i as f64).powf(alpha)).collect();
+        let z: f64 = unnorm.iter().sum();
+        let probs: Vec<f64> = unnorm.iter().map(|u| u / z).collect();
+
+        let n = 500usize;
+        let n_trials = 50;
+        let mut sum_chao1 = 0.0;
+        for trial in 0..n_trials {
+            let seed = 0xDEAD_BEEF_u64
+                .wrapping_add(trial as u64)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let counts = deterministic_zipf_sample(s, &probs, n, seed);
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let s_hat = support_chao1(&fp);
+            // Chao1 is always >= S_obs.
+            assert!(s_hat >= fp.observed_support() as f64 - 1e-9);
+            sum_chao1 += s_hat;
+        }
+        let mean_chao1 = sum_chao1 / n_trials as f64;
+        // Mean Chao1 should be <= S_true (lower bound property).
+        // Allow small slack for finite-sample variance.
+        assert!(
+            mean_chao1 <= s as f64 + 5.0,
+            "mean Chao1 {mean_chao1:.1} >> true S={s}"
+        );
+    }
+
+    // ---- from_frequency_counts trailing zero normalization ----
+
+    #[test]
+    fn from_frequency_counts_strips_trailing_zeros() {
+        let fp1 = Fingerprint::from_frequency_counts(&[0, 2, 0, 1]).unwrap();
+        let fp2 = Fingerprint::from_frequency_counts(&[0, 2, 0, 1, 0, 0]).unwrap();
+        assert_eq!(fp1, fp2, "trailing zeros should be stripped for equality");
     }
 }

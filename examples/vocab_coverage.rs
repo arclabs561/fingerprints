@@ -7,7 +7,8 @@
 use std::collections::HashMap;
 
 use fingerprints::{
-    coverage_good_turing, entropy_default_bits, support_chao1, unseen_mass_good_turing, Fingerprint,
+    coverage_good_turing, entropy_default_nats, support_chao1, to_bits, unseen_mass_good_turing,
+    Fingerprint,
 };
 
 const SAMPLE_TEXT: &str = "\
@@ -48,7 +49,7 @@ fn main() {
     let p_unseen = unseen_mass_good_turing(&fp);
     let coverage = coverage_good_turing(&fp);
     let s_chao1 = support_chao1(&fp);
-    let h_bits = entropy_default_bits(&fp);
+    let h_bits = to_bits(entropy_default_nats(&fp));
 
     println!("--- Vocabulary Coverage Report ---");
     println!();
