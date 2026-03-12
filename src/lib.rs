@@ -48,6 +48,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 use core::cmp::Ordering;
 use core::num::NonZeroUsize;
