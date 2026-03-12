@@ -18,7 +18,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fingerprints = "0.1"
+fingerprints = "0.2"
 ```
 
 Estimate a few basic quantities from per-symbol counts:
@@ -33,6 +33,7 @@ use fingerprints::{
     pitman_yor_params_hat,
     unseen_mass_good_turing,
     support_chao1,
+    to_bits,
 };
 
 let counts = [5usize, 4, 3, 2, 2, 1, 1, 1];
@@ -52,49 +53,55 @@ assert!(h_py.is_finite() && h_py >= 0.0);
 assert!((0.0..1.0).contains(&py.d));
 assert!((0.0..=1.0).contains(&p_unseen));
 assert!(s_hat >= fp.observed_support() as f64);
+
+// Convert nats to bits with to_bits().
+let h_bits = to_bits(h_plugin);
+assert!(h_bits >= 0.0);
 ```
 
 ## API tour
 
 - **Fingerprint abstraction**:
-  - `Fingerprint::from_counts`, `Fingerprint::from_frequency_counts`, `sample_size`, `observed_support`, `singletons`, `doubletons`
+  - `Fingerprint::from_counts`, `Fingerprint::from_frequency_counts`, `sample_size`, `observed_support`, `singletons`, `doubletons`, `count`, `max_freq`, `iter`, `as_slice`, `observed_species`
 - **Entropy estimators (nats)**:
-  - `entropy_default_nats` (opinionated default; currently aliases Pitman–Yor)
+  - `entropy_default_nats` (opinionated default; currently aliases Pitman-Yor)
   - `entropy_plugin_nats`
   - `entropy_miller_madow_nats`
   - `entropy_jackknife_nats`
-  - `entropy_pitman_yor_nats` (Pitman–Yor / DPYM; targets the unseen regime)
+  - `entropy_pitman_yor_nats` (Pitman-Yor / DPYM; targets the unseen regime)
   - `pitman_yor_params_hat` (inspect selected hyperparameters)
+- **Unit conversion**:
+  - `to_bits(nats)` converts nats to bits
 - **Coverage / support**:
-  - `coverage_good_turing` (sample coverage \( \hat C = 1 - F_1/n \))
-  - `unseen_mass_good_turing` (unseen mass \( \hat p_0 \approx F_1/n \))
+  - `coverage_good_turing` (sample coverage `C_hat = 1 - F_1/n`)
+  - `unseen_mass_good_turing` (unseen mass `p0_hat ~ F_1/n`)
   - `support_chao1`
 - **Coverage baselines / toy problems** (`fingerprints::coverage`):
-  - `german_tank_unbiased_*`: finite-support “max serial number” baseline (sampling without replacement) — see [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
-  - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines — see [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
+  - `german_tank_unbiased_*`: finite-support "max serial number" baseline (sampling without replacement) -- see [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
+  - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines -- see [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
 - **PML scaffolding** (`fingerprints::pml`):
   - `best_uniform_support_size` (baseline family)
   - `profile_log_likelihood_small` (exact profile likelihood for small observed support)
-- **VV-style LP scaffold** (`fingerprints::vv`, feature-gated):
+- **VV-style LP scaffold** (`fingerprints::vv`, requires `lp` feature):
   - `support_bounds_lp`, `entropy_bounds_lp`
 
 ## Invariants and conventions
 
 - **Inputs**:
-  - “counts” means per-symbol multiplicities for *observed* distinct symbols (all `> 0`).
+  - "counts" means per-symbol multiplicities for *observed* distinct symbols (all `> 0`).
   - `Fingerprint` stores `F[i]` = number of symbols seen exactly `i` times; `F[0]` is unused.
 - **Units**:
-  - entropy is in **nats** unless a `_bits` helper is used.
+  - Entropy is in **nats**. Use `to_bits()` for bits.
 - **Codelength**:
-  - `sample_codelen_plugin_*` turns per-symbol entropy into **total sample code length** (\(n\cdot H(\hat p)\)), which is a useful scalar for MDL-style comparisons.
+  - `sample_codelen_plugin_nats` turns per-symbol entropy into **total sample code length** (`n * H(p_hat)`), a useful scalar for MDL-style comparisons.
 - **Estimator semantics**:
   - `*_plugin_*` treats the empirical histogram as the true distribution.
-  - Bias corrections (Miller–Madow, jackknife) can overshoot in some regimes; treat as estimators,
+  - Bias corrections (Miller-Madow, jackknife) can overshoot in some regimes; treat as estimators,
     not identities.
 
 ## Features
 
-No feature flags. `fingerprints::vv`’s LP-backed bounds are available by default via `minilp`.
+- `lp` (default): enables `fingerprints::vv` module with LP-backed bounds via `minilp`.
 
 ## Examples
 
@@ -107,10 +114,10 @@ No feature flags. `fingerprints::vv`’s LP-backed bounds are available by defau
 ## Tests
 
 ```bash
-cargo test -p fingerprints
+cargo test --all-features
 ```
 
-84 tests (61 unit + 23 doc-tests) covering entropy estimator consistency, bias correction ordering, Good-Turing/Chao1 edge cases, profile likelihood monotonicity, VV LP bounds bracketing, Hellinger triangle inequality (proptest), fingerprint sufficiency invariant, convergence on Zipf distributions, all-singletons and no-singletons edge cases, and cross-crate property tests against logp (total Bregman normalization, rho-alpha identity).
+102 tests (76 unit + 26 doc-tests).
 
 ## Roadmap (near-term)
 
@@ -131,7 +138,7 @@ Key papers motivating the estimator families in this crate:
 
 Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and diversity indices all reduce to the fingerprint-based estimation problems addressed here. See:
 
-- Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices" -- documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators like those in this crate
+- Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices" -- documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators
 
 ## License
 
