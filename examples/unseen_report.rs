@@ -1,8 +1,7 @@
 use fingerprints::{
-    entropy_jackknife_bits, entropy_jackknife_nats, entropy_miller_madow_bits,
-    entropy_miller_madow_nats, entropy_pitman_yor_bits, entropy_pitman_yor_nats,
-    entropy_plugin_bits, entropy_plugin_nats, pitman_yor_params_hat, support_chao1,
-    unseen_mass_good_turing, Fingerprint,
+    entropy_jackknife_nats, entropy_miller_madow_nats, entropy_pitman_yor_nats,
+    entropy_plugin_nats, pitman_yor_params_hat, support_chao1, to_bits, unseen_mass_good_turing,
+    Fingerprint,
 };
 
 fn usage() -> ! {
@@ -41,10 +40,10 @@ fn main() {
     let h_jk_n = entropy_jackknife_nats(&fp);
     let h_py_n = entropy_pitman_yor_nats(&fp);
 
-    let h_plugin_b = entropy_plugin_bits(&fp);
-    let h_mm_b = entropy_miller_madow_bits(&fp);
-    let h_jk_b = entropy_jackknife_bits(&fp);
-    let h_py_b = entropy_pitman_yor_bits(&fp);
+    let h_plugin_b = to_bits(h_plugin_n);
+    let h_mm_b = to_bits(h_mm_n);
+    let h_jk_b = to_bits(h_jk_n);
+    let h_py_b = to_bits(h_py_n);
 
     let p0_hat = unseen_mass_good_turing(&fp);
     let s_chao1 = support_chao1(&fp);
@@ -56,41 +55,44 @@ fn main() {
         fp.observed_support(),
         fp.singletons()
     );
-    println!("unseen mass (Good–Turing) p0_hat≈{:.4}", p0_hat);
-    println!("support (Chao1) Ŝ≈{:.2}", s_chao1);
+    println!("unseen mass (Good-Turing) p0_hat~={:.4}", p0_hat);
+    println!("support (Chao1) S_hat~={:.2}", s_chao1);
     println!();
 
     println!("entropy (nats):");
     println!("  plugin       {:>10.6}", h_plugin_n);
-    println!("  Miller–Madow {:>10.6}", h_mm_n);
+    println!("  Miller-Madow {:>10.6}", h_mm_n);
     println!("  jackknife    {:>10.6}", h_jk_n);
     println!(
-        "  Pitman–Yor   {:>10.6}   (d={:.3}, α={:.3})",
+        "  Pitman-Yor   {:>10.6}   (d={:.3}, alpha={:.3})",
         h_py_n, py.d, py.alpha
     );
     println!();
 
     println!("entropy (bits):");
     println!("  plugin       {:>10.6}", h_plugin_b);
-    println!("  Miller–Madow {:>10.6}", h_mm_b);
+    println!("  Miller-Madow {:>10.6}", h_mm_b);
     println!("  jackknife    {:>10.6}", h_jk_b);
-    println!("  Pitman–Yor   {:>10.6}", h_py_b);
+    println!("  Pitman-Yor   {:>10.6}", h_py_b);
     println!();
 
     // LP-backed VV-style bounds (best-effort).
-    let params = fingerprints::vv::SupportLpParams::default_for(&fp);
-    match (
-        fingerprints::vv::support_bounds_lp(&fp, params.clone()),
-        fingerprints::vv::entropy_bounds_lp(&fp, params),
-    ) {
-        (Ok((s_lo, s_hi)), Ok((h_lo, h_hi))) => {
-            println!("VV LP support bounds: [{:.3}, {:.3}]", s_lo, s_hi);
-            println!("VV LP entropy bounds (nats): [{:.6}, {:.6}]", h_lo, h_hi);
-        }
-        (s, h) => {
-            println!("VV LP bounds unavailable for this input.");
-            println!("  support_bounds_lp: {:?}", s.err());
-            println!("  entropy_bounds_lp: {:?}", h.err());
+    #[cfg(feature = "lp")]
+    {
+        let params = fingerprints::vv::LpParams::default_for(&fp);
+        match (
+            fingerprints::vv::support_bounds_lp(&fp, params.clone()),
+            fingerprints::vv::entropy_bounds_lp(&fp, params),
+        ) {
+            (Ok((s_lo, s_hi)), Ok((h_lo, h_hi))) => {
+                println!("VV LP support bounds: [{:.3}, {:.3}]", s_lo, s_hi);
+                println!("VV LP entropy bounds (nats): [{:.6}, {:.6}]", h_lo, h_hi);
+            }
+            (s, h) => {
+                println!("VV LP bounds unavailable for this input.");
+                println!("  support_bounds_lp: {:?}", s.err());
+                println!("  entropy_bounds_lp: {:?}", h.err());
+            }
         }
     }
 }

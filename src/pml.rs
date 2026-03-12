@@ -30,20 +30,12 @@
 
 #![forbid(unsafe_code)]
 
-use crate::{PropEstError, Result};
-
-fn ln_factorial(n: usize) -> f64 {
-    // Exact enough for the regimes we use here; can be replaced by ln-gamma later.
-    if n <= 1 {
-        return 0.0;
-    }
-    (2..=n).map(|k| (k as f64).ln()).sum()
-}
+use crate::{ln_factorial, EstimationError, Result};
 
 fn ln_multinomial_coeff(n: usize, counts: &[usize]) -> Result<f64> {
     let sum: usize = counts.iter().sum();
     if sum != n {
-        return Err(PropEstError::Invalid("counts do not sum to n"));
+        return Err(EstimationError::Invalid("counts do not sum to n"));
     }
     let mut v = ln_factorial(n);
     for &c in counts {
@@ -94,8 +86,8 @@ fn ln_binom(n: usize, k: usize) -> f64 {
 ///
 /// # Errors
 ///
-/// - [`PropEstError::EmptySample`] if `counts` is empty.
-/// - [`PropEstError::Invalid`] if any count is zero, or `support_size < m`.
+/// - [`EstimationError::EmptySample`] if `counts` is empty.
+/// - [`EstimationError::Invalid`] if any count is zero, or `support_size < m`.
 ///
 /// # Examples
 ///
@@ -111,21 +103,21 @@ fn ln_binom(n: usize, k: usize) -> f64 {
 /// ```
 pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> Result<f64> {
     if counts.is_empty() {
-        return Err(PropEstError::EmptySample);
+        return Err(EstimationError::EmptySample);
     }
     if counts.contains(&0) {
-        return Err(PropEstError::Invalid("counts must be positive"));
+        return Err(EstimationError::Invalid("counts must be positive"));
     }
 
     let m = counts.len();
     if support_size < m {
-        return Err(PropEstError::Invalid(
+        return Err(EstimationError::Invalid(
             "support_size must be >= observed distinct count",
         ));
     }
     let n: usize = counts.iter().sum();
     if n == 0 {
-        return Err(PropEstError::Invalid("sum(counts) == 0"));
+        return Err(EstimationError::Invalid("sum(counts) == 0"));
     }
 
     let ln_choose_species = ln_binom(support_size, m);
@@ -144,8 +136,8 @@ pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> 
 ///
 /// # Errors
 ///
-/// - [`PropEstError::EmptySample`] if `counts` is empty.
-/// - [`PropEstError::Invalid`] if `s_max < m` (observed distinct count).
+/// - [`EstimationError::EmptySample`] if `counts` is empty.
+/// - [`EstimationError::Invalid`] if `s_max < m` (observed distinct count).
 ///
 /// # Examples
 ///
@@ -160,11 +152,11 @@ pub fn uniform_profile_log_likelihood(counts: &[usize], support_size: usize) -> 
 #[must_use = "returns (best_support_size, log_likelihood)"]
 pub fn best_uniform_support_size(counts: &[usize], s_max: usize) -> Result<(usize, f64)> {
     if counts.is_empty() {
-        return Err(PropEstError::EmptySample);
+        return Err(EstimationError::EmptySample);
     }
     let m = counts.len();
     if s_max < m {
-        return Err(PropEstError::Invalid(
+        return Err(EstimationError::Invalid(
             "s_max must be >= observed distinct count",
         ));
     }
@@ -209,8 +201,8 @@ fn log_sum_exp(xs: &[f64]) -> f64 {
 ///
 /// # Errors
 ///
-/// - [`PropEstError::EmptySample`] if `counts` is empty.
-/// - [`PropEstError::Invalid`] if `counts.len() != probs.len()`, or `m > 20`, or any
+/// - [`EstimationError::EmptySample`] if `counts` is empty.
+/// - [`EstimationError::Invalid`] if `counts.len() != probs.len()`, or `m > 20`, or any
 ///   count is zero.
 /// - Propagates simplex validation errors from `logp::validate_simplex`.
 ///
@@ -226,20 +218,20 @@ fn log_sum_exp(xs: &[f64]) -> f64 {
 /// ```
 pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -> Result<f64> {
     if counts.is_empty() {
-        return Err(PropEstError::EmptySample);
+        return Err(EstimationError::EmptySample);
     }
     if counts.len() != probs.len() {
-        return Err(PropEstError::Invalid(
+        return Err(EstimationError::Invalid(
             "counts and probs must have same length",
         ));
     }
     if counts.len() > 20 {
-        return Err(PropEstError::Invalid(
+        return Err(EstimationError::Invalid(
             "observed support too large for exact profile likelihood",
         ));
     }
     if counts.contains(&0) {
-        return Err(PropEstError::Invalid("counts must be positive"));
+        return Err(EstimationError::Invalid("counts must be positive"));
     }
     logp::validate_simplex(probs, tol)?;
 

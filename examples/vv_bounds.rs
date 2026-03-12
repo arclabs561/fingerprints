@@ -1,10 +1,10 @@
 fn main() {
-    use fingerprints::vv::{entropy_bounds_lp, support_bounds_lp, SupportLpParams};
+    use fingerprints::vv::{entropy_bounds_lp, support_bounds_lp, LpParams};
     use fingerprints::Fingerprint;
 
     let counts = [5usize, 4, 3, 2, 2, 1, 1, 1];
     let fp = Fingerprint::from_counts(counts).unwrap();
-    let params = SupportLpParams::default_for(&fp);
+    let params = LpParams::default_for(&fp);
 
     let (s_lo, s_hi) = support_bounds_lp(&fp, params.clone()).unwrap();
     let (h_lo, h_hi) = entropy_bounds_lp(&fp, params).unwrap();

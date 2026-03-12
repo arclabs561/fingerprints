@@ -1,6 +1,6 @@
 use fingerprints::{
-    entropy_jackknife_bits, entropy_miller_madow_bits, entropy_pitman_yor_bits,
-    entropy_plugin_bits, pitman_yor_params_hat, support_chao1, unseen_mass_good_turing,
+    entropy_jackknife_nats, entropy_miller_madow_nats, entropy_pitman_yor_nats,
+    entropy_plugin_nats, pitman_yor_params_hat, support_chao1, to_bits, unseen_mass_good_turing,
     Fingerprint,
 };
 
@@ -74,7 +74,7 @@ fn sample_counts(p: &[f64], n: usize, seed: u64) -> Vec<usize> {
 }
 
 fn main() {
-    // Synthetic “unseen regime” demo:
+    // Synthetic "unseen regime" demo:
     // - large support K
     // - Zipf-ish heavy tail
     // - sample size N << K
@@ -98,10 +98,10 @@ fn main() {
         let counts_obs: Vec<usize> = counts_full.into_iter().filter(|&c| c > 0).collect();
         let fp = Fingerprint::from_counts(counts_obs).unwrap();
 
-        let h_plugin = entropy_plugin_bits(&fp);
-        let h_mm = entropy_miller_madow_bits(&fp);
-        let h_jk = entropy_jackknife_bits(&fp);
-        let h_py = entropy_pitman_yor_bits(&fp);
+        let h_plugin = to_bits(entropy_plugin_nats(&fp));
+        let h_mm = to_bits(entropy_miller_madow_nats(&fp));
+        let h_jk = to_bits(entropy_jackknife_nats(&fp));
+        let h_py = to_bits(entropy_pitman_yor_nats(&fp));
         let py = pitman_yor_params_hat(&fp);
 
         let p0_hat = unseen_mass_good_turing(&fp);

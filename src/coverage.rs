@@ -22,7 +22,7 @@
 //!   algorithms, and self-organizing search" -- rigorous analysis of the coupon collector
 //!   and birthday problems underlying the baselines here
 
-use crate::{PropEstError, Result};
+use crate::{EstimationError, Result};
 
 /// German tank problem (classic): serial numbers are `1..=N` sampled **without replacement**.
 ///
@@ -51,10 +51,12 @@ use crate::{PropEstError, Result};
 /// ```
 pub fn german_tank_unbiased_1_indexed(max_seen: u64, sample_size: u64) -> Result<f64> {
     if sample_size == 0 {
-        return Err(PropEstError::Invalid("sample_size must be >= 1"));
+        return Err(EstimationError::Invalid("sample_size must be >= 1"));
     }
     if max_seen == 0 {
-        return Err(PropEstError::Invalid("max_seen must be >= 1 (1-indexed)"));
+        return Err(EstimationError::Invalid(
+            "max_seen must be >= 1 (1-indexed)",
+        ));
     }
     let m = max_seen as f64;
     let k = sample_size as f64;
