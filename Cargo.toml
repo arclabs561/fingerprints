@@ -17,5 +17,5 @@ minilp = "0.2"
 
 [dev-dependencies]
 proptest = "1.9"
-textprep = "0.1.0"
+textprep = "0.1.3"
 
