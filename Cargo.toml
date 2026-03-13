@@ -22,3 +22,7 @@ minilp = { version = "0.2", optional = true }
 [dev-dependencies]
 proptest = "1.9"
 textprep = "0.1.3"
+
+[[example]]
+name = "vv_bounds"
+required-features = ["lp"]
