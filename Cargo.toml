@@ -10,6 +10,8 @@ readme = "README.md"
 keywords = ["statistics", "estimation", "entropy", "mutual-information", "support"]
 categories = ["algorithms", "science", "mathematics"]
 
+[workspace]
+
 [features]
 default = ["lp"]
 lp = ["dep:minilp"]
