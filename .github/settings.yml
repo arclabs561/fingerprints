@@ -2,7 +2,7 @@
 # https://github.com/repository-settings/app
 
 repository:
-  description: "Property estimation from samples (fingerprints/profiles): entropy/support estimators and unseen-regime methods"
+  description: "Property estimation from samples: entropy, support, and unseen mass"
   homepage: "https://docs.rs/fingerprints"
   private: false
   has_issues: true
