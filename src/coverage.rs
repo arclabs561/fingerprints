@@ -1,25 +1,60 @@
-//! Coverage / support heuristics (classical baselines).
+//! Coverage and support baselines: German tank problem and coupon collector.
 //!
-//! These are “orientation tools” that connect the `fingerprints` unseen/coverage story to classical
-//! toy problems:
+//! # Why these baselines exist
 //!
-//! - **German tank problem**: estimate the maximum of a finite discrete uniform support from
-//!   a sample drawn without replacement.
-//! - **Coupon collector problem**: expected number of draws (with replacement) to observe all
-//!   distinct types under a uniform distribution.
-//! - **Expected distinct types**: expected number of distinct types after \(t\) uniform draws
-//!   from \(n\) types.
+//! The `fingerprints` crate estimates properties of distributions from samples when the
+//! true support may be much larger than the observed sample. Before reaching for PML or
+//! Valiant-Valiant estimators, it helps to have calibrated intuition about what is
+//! achievable under the simplest model: a **uniform discrete distribution**.
 //!
-//! These provide useful baselines and sanity checks for more sophisticated estimators in
-//! [`crate::pml`] and [`crate::vv`].
+//! This module provides two classical baselines under the uniform assumption:
+//!
+//! ## German tank problem
+//!
+//! During WWII, Allied statisticians estimated German tank production from captured
+//! serial numbers. If serial numbers run 1..=N and you observe a sample of `k` of them
+//! without replacement, the minimum-variance unbiased estimator (MVUE) of `N` is:
+//!
+//! ```text
+//! N_hat = max_seen * (k+1)/k - 1
+//! ```
+//!
+//! This is the simplest possible support-size estimator: it assumes uniformity and
+//! exploits the fact that the maximum is a sufficient statistic under this model.
+//! In the coverage context, it answers: “if species had serial numbers, how many total
+//! species exist?” It gives a lower bound on support under any distribution where
+//! all observed species are distinct (sampling without replacement).
+//!
+//! ## Coupon collector problem
+//!
+//! If there are `n` distinct coupons and each draw is uniform with replacement, the
+//! expected number of draws to complete the collection is `n * H_n` (the n-th harmonic
+//! sum). This is approximately `n * ln(n)` for large `n`.
+//!
+//! This gives the complement of the German tank question: not “how big is the support?”
+//! but “how many samples do I need to see all of it?” If you have `t` draws from a
+//! population of unknown size, and you've seen `d` distinct types, the coupon collector
+//! formula tells you what `d/n` to expect as a function of `t/n`. Significantly fewer
+//! distinct types than expected signals non-uniformity, motivating the non-parametric
+//! estimators in [`crate::pml`] and [`crate::vv`].
+//!
+//! ## Relationship to more sophisticated estimators
+//!
+//! Both baselines assume uniformity, which is almost never true in practice. They are
+//! useful as:
+//! - **Sanity checks**: a real estimator should outperform these on non-uniform data.
+//! - **Rate references**: Chao1 (in [`crate::support_chao1`]) is a nonparametric lower
+//!   bound that reduces to the German tank formula for uniform distributions.
+//! - **Calibration**: comparing observed distinct-type counts to `expected_distinct_uniform`
+//!   quantifies how far the data is from uniform before running heavier estimators.
 //!
 //! # References
 //!
-//! - Good (1953): "The population frequencies of species" -- foundational coverage estimator
-//! - Chao (1984): "Nonparametric estimation of the number of classes in a population" --
+//! - Good (1953): “The population frequencies of species” -- foundational coverage estimator
+//! - Chao (1984): “Nonparametric estimation of the number of classes in a population” --
 //!   Chao1 lower bound on species richness (used in [`crate::support_chao1`])
-//! - Flajolet, Gardy, Thimonier (1992): "Birthday paradox, coupon collectors, caching
-//!   algorithms, and self-organizing search" -- rigorous analysis of the coupon collector
+//! - Flajolet, Gardy, Thimonier (1992): “Birthday paradox, coupon collectors, caching
+//!   algorithms, and self-organizing search” -- rigorous analysis of the coupon collector
 //!   and birthday problems underlying the baselines here
 
 use crate::{EstimationError, Result};
