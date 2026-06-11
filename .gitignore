@@ -4,3 +4,4 @@
 proptest-regressions/
 
 Cargo.lock
+/semver-checks/
