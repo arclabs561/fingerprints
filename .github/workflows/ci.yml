@@ -19,6 +19,11 @@ jobs:
         run: cargo check --all-targets --all-features
       - name: test
         run: cargo test --all-features
+      - name: run example assertions
+        run: |
+          cargo run --example basic
+          cargo run --example pml_uniform
+          cargo run --example vv_bounds --features lp
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
