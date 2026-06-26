@@ -105,11 +105,14 @@ assert!(h_bits >= 0.0);
 
 ## Examples
 
-- `cargo run --example basic`
-- `cargo run --example pml_uniform`
-- `cargo run --example vv_bounds`
-- `cargo run --example pitman_yor_zipf`
-- `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1`
+Each targets the unseen regime above (estimating what a sample has not yet
+revealed), the problem ecology calls species richness:
+
+- `cargo run --example basic` estimates entropy, unseen mass, and support size from per-symbol counts, contrasting the plug-in estimator with the bias-corrected ones.
+- `cargo run --example pml_uniform` runs profile maximum likelihood over the uniform family, recovering the size of a near-uniform alphabet from a sample.
+- `cargo run --example vv_bounds` computes Valiant-Valiant LP bounds on support and entropy, the estimator with provable sample complexity (uses the default `lp` feature).
+- `cargo run --example pitman_yor_zipf` samples from a heavy-tailed Pitman-Yor / Zipf distribution and estimates its properties, the realistic case for natural-language word frequencies.
+- `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1` takes a fingerprint (counts of counts) on the command line and prints the full unseen-regime report.
 
 ## Tests
 
