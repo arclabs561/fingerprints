@@ -113,6 +113,7 @@ revealed), the problem ecology calls species richness:
 - `cargo run --example vv_bounds` computes Valiant-Valiant LP bounds on support and entropy, the estimator with provable sample complexity (uses the default `lp` feature).
 - `cargo run --example pitman_yor_zipf` samples from a heavy-tailed Pitman-Yor / Zipf distribution and estimates its properties, the realistic case for natural-language word frequencies.
 - `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1` takes a fingerprint (counts of counts) on the command line and prints the full unseen-regime report.
+- `cargo run --example mdl_codelength` compares two-part codelengths for exact and task-level representations, the MDL/Kolmogorov foothold.
 
 ## Tests
 

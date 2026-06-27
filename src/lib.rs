@@ -325,7 +325,7 @@ impl Fingerprint {
         self.f.get(r).copied().unwrap_or(0)
     }
 
-    /// Number of species observed exactly `j` times (0-indexed: f[0] is always 0).
+    /// Number of species observed exactly `j` times; the zero-frequency slot is always 0.
     #[must_use]
     pub fn count(&self, j: usize) -> usize {
         self.f.get(j).copied().unwrap_or(0)
@@ -348,7 +348,7 @@ impl Fingerprint {
         &self.f
     }
 
-    /// Number of distinct species observed (alias for [`observed_support`]).
+    /// Number of distinct species observed (alias for [`Self::observed_support`]).
     #[must_use]
     pub fn observed_species(&self) -> usize {
         self.f.iter().skip(1).sum()

@@ -124,7 +124,7 @@ pub fn german_tank_unbiased_support_size_0_indexed(
 /// Expected draws to collect all `n` coupons (uniform, with replacement).
 ///
 /// \[
-/// \mathbb{E}[T] = n \cdot H_n = n \sum_{i=1}^{n} \frac{1}{i}
+/// \mathbb{E}\[T\] = n \cdot H_n = n \sum_{i=1}^{n} \frac{1}{i}
 /// \]
 ///
 /// where \(H_n\) is the \(n\)-th harmonic number. For large \(n\), this is approximately
@@ -155,7 +155,7 @@ pub fn coupon_collector_expected_draws(n: u64) -> f64 {
 /// Expected number of distinct types observed after `t` uniform draws from `n` types.
 ///
 /// \[
-/// \mathbb{E}[D_t] = n\left(1 - \left(1 - \frac{1}{n}\right)^t\right)
+/// \mathbb{E}\[D_t\] = n\left(1 - \left(1 - \frac{1}{n}\right)^t\right)
 /// \]
 ///
 /// This is exact for sampling with replacement from a uniform distribution. It gives a
