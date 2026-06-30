@@ -105,6 +105,9 @@ assert!(h_bits >= 0.0);
 
 ## Examples
 
+See [`examples/README.md`](examples/README.md) for the full gallery: each
+example states the question it answers, the run command, and real sample output.
+
 Each targets the unseen regime above (estimating what a sample has not yet
 revealed), the problem ecology calls species richness:
 
