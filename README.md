@@ -77,8 +77,8 @@ assert!(h_bits >= 0.0);
   - `unseen_mass_good_turing` (unseen mass `p0_hat ~ F_1/n`)
   - `support_chao1`
 - **Coverage baselines / toy problems** (`fingerprints::coverage`):
-  - `german_tank_unbiased_*`: finite-support "max serial number" baseline (sampling without replacement) -- see [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
-  - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines -- see [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
+  - `german_tank_unbiased_*`: finite-support "max serial number" baseline (sampling without replacement). See [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
+  - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines. See [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
 - **PML scaffolding** (`fingerprints::pml`):
   - `best_uniform_support_size` (baseline family)
   - `profile_log_likelihood_small` (exact profile likelihood for small observed support)
@@ -137,16 +137,16 @@ cargo test --all-features
 
 Key papers motivating the estimator families in this crate:
 
-- Good (1953), "The population frequencies of species and the estimation of population parameters" -- Good-Turing coverage
-- Chao (1984), "Nonparametric estimation of the number of classes in a population" -- Chao1 support estimator
-- Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM) -- LP-based bounds
-- Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood" -- PML as unified sample-optimal estimator
-- Hashino & Tsukuda (2026), "Estimating the Shannon Entropy Using the Pitman-Yor Process" -- PY entropy estimator
-- Han, Jiao, Weissman (2025), "Besting Good-Turing: Optimality of NPMLE" -- theoretical motivation for PML direction
+- Good (1953), "The population frequencies of species and the estimation of population parameters": Good-Turing coverage
+- Chao (1984), "Nonparametric estimation of the number of classes in a population": Chao1 support estimator
+- Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM): LP-based bounds
+- Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood": PML as unified sample-optimal estimator
+- Hashino & Tsukuda (2026), "Estimating the Shannon Entropy Using the Pitman-Yor Process": PY entropy estimator
+- Han, Jiao, Weissman (2025), "Besting Good-Turing: Optimality of NPMLE": theoretical motivation for PML direction
 
 Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and diversity indices all reduce to the fingerprint-based estimation problems addressed here. See:
 
-- Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices" -- documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators
+- Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices": documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators
 
 ## License
 
