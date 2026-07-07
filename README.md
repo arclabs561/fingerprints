@@ -2,15 +2,14 @@
 
 [![crates.io](https://img.shields.io/crates/v/fingerprints.svg)](https://crates.io/crates/fingerprints)
 [![Documentation](https://docs.rs/fingerprints/badge.svg)](https://docs.rs/fingerprints)
-[![CI](https://github.com/arclabs561/fingerprints/actions/workflows/ci.yml/badge.svg)](https://github.com/arclabs561/fingerprints/actions/workflows/ci.yml)
 
 Property estimation from samples.
 
-This crate provides estimators of information-theoretic functionals from *samples* (counts /
-fingerprints / profiles), building on a definition layer for known distributions.
+`fingerprints` estimates entropy, support size, unseen mass, and related
+properties from counts or fingerprints.
 
-The center of gravity is the **unseen regime**: finite samples, large/unknown support, and
-estimators with explicit bias/variance tradeoffs.
+It is aimed at finite samples from distributions whose support may be large or
+unknown.
 
 ## Quickstart
 
