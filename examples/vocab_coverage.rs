@@ -22,8 +22,9 @@ message types from intercepted traffic. Their estimator -- now called Good-Turin
 uses the count of singletons (words seen exactly once) as a proxy for the unseen mass. \
 If many words appear only once, the sample likely covers a small fraction of the true \
 vocabulary. If few words are singletons, coverage is high. \
-The Chao1 estimator goes further, using both singletons and doubletons to produce a \
-lower bound on the true vocabulary size. Together, these tools give a quick diagnostic: \
+The Chao1 estimator goes further, using both singletons and doubletons to estimate a \
+lower-bound target for vocabulary size. A finite-sample estimate is not a certified \
+bound. Together, these tools give a quick diagnostic: \
 is our sample large enough, or is there a long tail of unseen types waiting beyond the \
 horizon of our data?";
 

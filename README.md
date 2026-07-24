@@ -80,7 +80,8 @@ assert!(h_bits >= 0.0);
   - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines. See [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
 - **PML scaffolding** (`fingerprints::pml`):
   - `best_uniform_support_size` (baseline family)
-  - `profile_log_likelihood_small` (exact profile likelihood for small observed support)
+  - `profile_log_likelihood_small` (exact profile likelihood for a supplied
+    small probability vector matching the observed support; no unseen components)
 - **VV-style LP scaffold** (`fingerprints::vv`, requires `lp` feature):
   - `support_bounds_lp`, `entropy_bounds_lp`
 
@@ -97,10 +98,14 @@ assert!(h_bits >= 0.0);
   - `*_plugin_*` treats the empirical histogram as the true distribution.
   - Bias corrections (Miller-Madow, jackknife) can overshoot in some regimes; treat as estimators,
     not identities.
+  - Chao1 estimates a lower-bound target, but a finite-sample estimate can exceed the
+    true support, even in expectation.
+  - The `vv` LP endpoints range over a configured discretized feasible set. They are
+    sensitivity ranges, not certified confidence intervals for the true property.
 
 ## Features
 
-- `lp` (default): enables `fingerprints::vv` module with LP-backed bounds via `minilp`.
+- `lp` (default): enables `fingerprints::vv` with grid-feasible LP ranges via `minilp`.
 
 ## Examples
 
@@ -111,10 +116,10 @@ Each targets the unseen regime above (estimating what a sample has not yet
 revealed), the problem ecology calls species richness:
 
 - `cargo run --example basic` estimates entropy, unseen mass, and support size from per-symbol counts, contrasting the plug-in estimator with the bias-corrected ones.
-- `cargo run --example pml_uniform` runs profile maximum likelihood over the uniform family, recovering the size of a near-uniform alphabet from a sample.
-- `cargo run --example vv_bounds` computes Valiant-Valiant LP bounds on support and entropy, the estimator with provable sample complexity (uses the default `lp` feature).
-- `cargo run --example pitman_yor_zipf` samples from a heavy-tailed Pitman-Yor / Zipf distribution and estimates its properties, the realistic case for natural-language word frequencies.
-- `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1` takes a fingerprint (counts of counts) on the command line and prints the full unseen-regime report.
+- `cargo run --example pml_uniform` compares candidate support sizes within the uniform family and reports the highest profile likelihood.
+- `cargo run --example vv_bounds` explores grid-feasible support and entropy ranges from the VV-style LP scaffold (uses the default `lp` feature).
+- `cargo run --example pitman_yor_zipf` samples from a finite Zipf distribution and compares four entropy estimators as the sample grows.
+- `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1` takes per-symbol counts on the command line and prints the full unseen-regime report.
 - `cargo run --example vocab_coverage` estimates how much of a text sample's vocabulary the sample has already revealed, the species-richness question on words.
 - `cargo run --example mdl_codelength` compares two-part codelengths for exact and task-level representations, the MDL/Kolmogorov foothold.
 
@@ -124,7 +129,7 @@ revealed), the problem ecology calls species richness:
 cargo test --all-features
 ```
 
-102 tests (76 unit + 26 doc-tests).
+The suite includes unit and documentation tests.
 
 ## Roadmap (near-term)
 
@@ -138,12 +143,12 @@ Key papers motivating the estimator families in this crate:
 
 - Good (1953), "The population frequencies of species and the estimation of population parameters": Good-Turing coverage
 - Chao (1984), "Nonparametric estimation of the number of classes in a population": Chao1 support estimator
-- Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM): LP-based bounds
-- Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood": PML as unified sample-optimal estimator
+- Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM): unseen-property estimation
+- Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood": broad-optimality results under stated conditions
 - Hashino & Tsukuda (2026), "Estimating the Shannon Entropy Using the Pitman-Yor Process": PY entropy estimator
 - Han, Jiao, Weissman (2025), "Besting Good-Turing: Optimality of NPMLE": theoretical motivation for PML direction
 
-Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and diversity indices all reduce to the fingerprint-based estimation problems addressed here. See:
+Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and many symmetric abundance-based diversity indices can be expressed as fingerprint-based estimation problems. See:
 
 - Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices": documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators
 

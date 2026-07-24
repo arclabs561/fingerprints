@@ -8,23 +8,24 @@
 //! symbols are unobserved and the empirical plug-in is heavily biased.
 //!
 //! The **profile** (or **pattern**) of a sample strips symbol labels and retains only
-//! multiplicities: how many symbols were seen once, twice, etc. Any estimator of a
-//! **symmetric property** (entropy, support size, distance from uniform) depends on the
-//! data only through this profile, making it the natural sufficient statistic.
+//! multiplicities: how many symbols were seen once, twice, etc. For a
+//! **symmetric property** (entropy, support size, distance from uniform), the profile is
+//! the part of the sample retained by an inference procedure that is invariant to
+//! relabeling.
 //!
 //! **Profile Maximum Likelihood** finds the distribution `p*` that maximizes the
 //! probability of observing the sample's *profile* rather than the labeled sample.
 //! Crucially, `p*` is an *unlabeled* distribution -- it optimizes over all relabelings
-//! simultaneously. Hao & Orlitsky (2019) proved that plugging `p*` into any symmetric
-//! functional gives a minimax-sample-optimal estimator. A single solver (PML) handles
-//! entropy, support size, and distance uniformly, replacing the zoo of hand-crafted
-//! corrections (Miller-Madow, jackknife, Chao1, Good-Turing, ...) each optimized for
-//! one property.
+//! simultaneously. Broad-optimality results for PML cover classes of symmetric
+//! properties under their stated sample-size, accuracy, and loss conditions. This makes
+//! PML a shared approach to properties such as entropy, support size, and distance, but
+//! not an unconditional replacement for property-specific estimators.
 //!
 //! This is the Valiant-Valiant / Orlitsky line of thought: instead of asking “what
 //! correction term fixes the plug-in for property X?”, ask “what distribution best
-//! explains this fingerprint as an unlabeled sample?” The PML answer is provably
-//! sample-optimal and property-agnostic.
+//! explains this fingerprint as an unlabeled sample?” The theory gives broad, qualified
+//! guarantees; the routines in this module implement only the limited families described
+//! below.
 //!
 //! # What this module provides
 //!
@@ -37,20 +38,17 @@
 //!   observed (and unobserved) symbols are equally likely, and optimizes only the
 //!   support size.
 //! - [`best_uniform_support_size`]: optimize support size within the uniform family.
-//!   Gives a support-size estimator that can outperform Chao1 when the distribution
-//!   is close to uniform.
-//! - [`profile_log_likelihood_small`]: exact profile log-likelihood under an arbitrary
-//!   distribution for small observed supports (m ≤ 20), computed via the matrix
-//!   permanent (Ryser formula). This is the core building block for a future EM solver
-//!   that iterates between the “E step” (compute profile likelihoods) and “M step”
-//!   (update the distribution).
+//!   Gives a model-specific contrast with abundance-based estimators such as Chao1.
+//! - [`profile_log_likelihood_small`]: exact profile log-likelihood for a supplied
+//!   probability vector with the same length as the observed count vector (m ≤ 20),
+//!   computed via the matrix permanent (Ryser formula). It does not include additional
+//!   unseen support.
 //!
 //! # Roadmap connection
 //!
-//! The `vv` module (Valiant-Valiant, feature-gated) contains an LP-based solver for
-//! the full PML problem. The functions here are the numerics substrate: `vv` will
-//! call `profile_log_likelihood_small` for the inner loop on small supports, and
-//! `uniform_profile_log_likelihood` as a warm-start.
+//! The `vv` module (Valiant-Valiant, feature-gated) contains a separate discretized
+//! histogram LP scaffold. It is not a full PML solver. The functions here can serve as
+//! numerical building blocks for a future solver beyond the uniform family.
 //!
 //! # References
 //!
@@ -58,7 +56,7 @@
 //! - Acharya, Das, Orlitsky, Suresh (2017): “A unified maximum likelihood approach for
 //!   estimating symmetric properties of discrete distributions”
 //! - Hao & Orlitsky (2019): “The Broad Optimality of Profile Maximum Likelihood” --
-//!   establishes PML as unified sample-optimal estimator; the theoretical foundation for this module
+//!   gives broad-optimality results under the paper's stated conditions
 //! - Pavlichin, Jiao, Weissman (2017): “Approximate Profile Maximum Likelihood” --
 //!   EM-style algorithm for approximate PML; relevant to scaling beyond `profile_log_likelihood_small`
 //! - Charikar, Hu, Steinhardt (2022): “On the Efficient Implementation of High Accuracy
@@ -218,6 +216,10 @@ fn log_sum_exp(xs: &[f64]) -> f64 {
 }
 
 /// Exact log profile-likelihood for **small** observed support (\(m \le 20\)).
+///
+/// `probs` must contain one component for every entry in `counts`. The calculation
+/// therefore covers assignments among the observed components only; it does not add
+/// probability components for unseen support.
 ///
 /// Computes:
 ///

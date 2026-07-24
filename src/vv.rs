@@ -2,13 +2,13 @@
 //!
 //! The VV approach models the unknown distribution as a histogram (a density over
 //! probability values) and matches the observed fingerprint entries \(F_1, \dots, F_k\)
-//! via Poisson moment constraints. A linear program (LP) over the histogram then yields
-//! bounds on symmetric functionals (support size, entropy).
+//! via Poisson moment constraints. This implementation optimizes symmetric functionals
+//! over a configured, discretized feasible set.
 //!
 //! This module provides a minimal, auditable LP for:
 //!
-//! - [`support_bounds_lp`]: lower and upper bounds on the true support size.
-//! - [`entropy_bounds_lp`]: lower and upper bounds on Shannon entropy (nats).
+//! - [`support_bounds_lp`]: minimum and maximum support over that feasible set.
+//! - [`entropy_bounds_lp`]: minimum and maximum Shannon entropy (nats) over that set.
 //!
 //! Both use a log-spaced probability grid and Poisson PMF coefficients
 //! \(a_{i,j} = \operatorname{Poi}(i; n p_j)\) as the constraint matrix.
@@ -23,9 +23,11 @@
 //! # Status
 //!
 //! This is a **research scaffold**: grid design and constraint policy may evolve.
-//! The LP relaxation approach here follows the VV methodology of bounding symmetric
-//! functionals via Poisson moment constraints on the fingerprint. Grid resolution and
-//! constraint tolerances are the main knobs for tightness vs. feasibility.
+//! It borrows the VV histogram-and-moment viewpoint, but does not implement the complete
+//! estimator or confidence construction from either cited paper. Its output is a
+//! grid-feasible sensitivity range, not a certified confidence interval or
+//! distribution-free bound on the true property. Grid resolution and constraint
+//! tolerances are the main knobs for range width and feasibility.
 
 #![forbid(unsafe_code)]
 
@@ -61,10 +63,11 @@ pub struct LpParams {
 }
 
 impl LpParams {
-    /// Reasonable defaults for small/medium sample sizes.
+    /// Current heuristic parameters for exploratory small- and medium-sample runs.
     ///
     /// Uses `k = 10` fingerprint entries, a 60-point log-spaced grid from
-    /// \(1/n^2\) to 1.0, and `eps_scale = 1.5`.
+    /// \(1/n^2\) to 1.0, and `eps_scale = 1.5`. These values are not calibrated
+    /// confidence-interval settings.
     #[must_use]
     pub fn default_for(fp: &Fingerprint) -> Self {
         let n = fp.sample_size().max(1) as f64;
@@ -114,7 +117,7 @@ fn grid_log_space(p_min: f64, p_max: f64, m: usize) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-/// Compute (lower, upper) bounds on support size using a VV-style histogram LP.
+/// Compute the minimum and maximum support over a VV-style histogram LP.
 ///
 /// Solves two LPs (minimize and maximize \(\sum_j x_j\)) subject to:
 ///
@@ -123,7 +126,10 @@ fn grid_log_space(p_min: f64, p_max: f64, m: usize) -> Result<Vec<f64>> {
 /// - Fingerprint constraints: \(\sum_j x_j \operatorname{Poi}(i; n p_j) \approx F_i\)
 ///   for \(i = 1, \dots, k\).
 ///
-/// Returns `(lower_bound, upper_bound)` in real-valued expected-support terms.
+/// Returns `(minimum, maximum)` in real-valued expected-support terms. The public
+/// function name is retained for compatibility, but these endpoints describe only the
+/// configured discretized feasible set. They are not certified bounds on the true
+/// support or a confidence interval.
 ///
 /// # Errors
 ///
@@ -202,7 +208,7 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
     Ok((lower, upper))
 }
 
-/// Compute (lower, upper) bounds on Shannon entropy (nats) using the same VV-style
+/// Compute the minimum and maximum Shannon entropy (nats) using the same VV-style
 /// histogram LP.
 ///
 /// The objective is a linearized entropy over the histogram grid:
@@ -212,10 +218,12 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
 /// \]
 ///
 /// Subject to the same mass, support, and fingerprint constraints as
-/// [`support_bounds_lp`]. Returns `(lower_bound, upper_bound)` in nats.
+/// [`support_bounds_lp`]. Returns `(minimum, maximum)` in nats over the configured
+/// discretized feasible set.
 ///
-/// Note: bounds depend on the grid discretization and constraint tolerances and may
-/// be loose, especially for heavy-tailed distributions.
+/// The public function name is retained for compatibility. These endpoints depend on
+/// the grid and tolerances; they are not certified bounds on the true entropy or a
+/// confidence interval.
 ///
 /// # Errors
 ///
@@ -324,8 +332,8 @@ mod tests {
     }
 
     #[test]
-    fn support_bounds_bracket_observed() {
-        // The LP support lower bound should be >= S_obs, upper bound >= lower bound.
+    fn support_range_starts_at_observed() {
+        // The feasible support minimum should be >= S_obs, and the maximum >= minimum.
         let counts = [10usize, 5, 3, 1, 1, 1];
         let fp = Fingerprint::from_counts(counts).unwrap();
         let s_obs = fp.observed_support() as f64;
@@ -336,23 +344,21 @@ mod tests {
     }
 
     #[test]
-    fn entropy_bounds_bracket_plugin() {
-        // The entropy LP bounds should contain the plug-in entropy (since the plug-in
-        // distribution is feasible for the LP when constraints are loose enough).
+    fn entropy_range_is_near_plugin() {
+        // Keep this representative fixture near the plug-in estimate as the grid and
+        // tolerances evolve; this is a regression check, not a coverage guarantee.
         let counts = [5usize, 4, 3, 2, 2, 1, 1, 1];
         let fp = Fingerprint::from_counts(counts).unwrap();
         let h_plug = crate::entropy_plugin_nats(&fp);
         let params = LpParams::default_for(&fp);
         let (lo, hi) = entropy_bounds_lp(&fp, params).unwrap();
-        // The plugin might not be exactly in the LP feasible region (discretization),
-        // but it should be close.
         assert!(lo <= h_plug + 0.5, "LP lower {lo} >> plug-in {h_plug}");
         assert!(hi >= h_plug - 0.5, "LP upper {hi} << plug-in {h_plug}");
     }
 
     #[test]
-    fn support_bounds_uniform_tight() {
-        // For a large uniform sample with no singletons, LP bounds should be tight
+    fn support_range_uniform_is_finite() {
+        // For a large uniform sample with no singletons, the LP range should remain
         // near the observed support.
         let counts = [20usize, 20, 20, 20, 20];
         let fp = Fingerprint::from_counts(counts).unwrap();

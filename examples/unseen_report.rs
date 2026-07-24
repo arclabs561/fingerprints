@@ -76,7 +76,7 @@ fn main() {
     println!("  Pitman-Yor   {:>10.6}", h_py_b);
     println!();
 
-    // LP-backed VV-style bounds (best-effort).
+    // Grid-feasible VV-style LP ranges (best-effort).
     #[cfg(feature = "lp")]
     {
         let params = fingerprints::vv::LpParams::default_for(&fp);
@@ -85,11 +85,14 @@ fn main() {
             fingerprints::vv::entropy_bounds_lp(&fp, params),
         ) {
             (Ok((s_lo, s_hi)), Ok((h_lo, h_hi))) => {
-                println!("VV LP support bounds: [{:.3}, {:.3}]", s_lo, s_hi);
-                println!("VV LP entropy bounds (nats): [{:.6}, {:.6}]", h_lo, h_hi);
+                println!("VV-style LP support range: [{:.3}, {:.3}]", s_lo, s_hi);
+                println!(
+                    "VV-style LP entropy range (nats): [{:.6}, {:.6}]",
+                    h_lo, h_hi
+                );
             }
             (s, h) => {
-                println!("VV LP bounds unavailable for this input.");
+                println!("VV-style LP ranges unavailable for this input.");
                 println!("  support_bounds_lp: {:?}", s.err());
                 println!("  entropy_bounds_lp: {:?}", h.err());
             }

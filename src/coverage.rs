@@ -22,8 +22,9 @@
 //! This is the simplest possible support-size estimator: it assumes uniformity and
 //! exploits the fact that the maximum is a sufficient statistic under this model.
 //! In the coverage context, it answers: “if species had serial numbers, how many total
-//! species exist?” It gives a lower bound on support under any distribution where
-//! all observed species are distinct (sampling without replacement).
+//! species exist?” Its unbiasedness depends on consecutive serial labels and uniform
+//! sampling without replacement; it is not a general estimator for arbitrary species
+//! labels or abundance distributions.
 //!
 //! ## Coupon collector problem
 //!
@@ -40,19 +41,20 @@
 //!
 //! ## Relationship to more sophisticated estimators
 //!
-//! Both baselines assume uniformity, which is almost never true in practice. They are
+//! Both baselines assume uniformity, which may not describe application data. They are
 //! useful as:
-//! - **Sanity checks**: a real estimator should outperform these on non-uniform data.
-//! - **Rate references**: Chao1 (in [`crate::support_chao1`]) is a nonparametric lower
-//!   bound that reduces to the German tank formula for uniform distributions.
-//! - **Calibration**: comparing observed distinct-type counts to `expected_distinct_uniform`
-//!   quantifies how far the data is from uniform before running heavier estimators.
+//! - **Sanity checks**: they expose how strongly conclusions can depend on uniformity.
+//! - **Contrasting models**: Chao1 (in [`crate::support_chao1`]) uses abundance counts,
+//!   while the German tank estimator uses the order of consecutive serial labels.
+//! - **A one-dimensional diagnostic**: compare the observed distinct-type count with
+//!   `expected_distinct_uniform` before running heavier estimators.
 //!
 //! # References
 //!
 //! - Good (1953): “The population frequencies of species” -- foundational coverage estimator
 //! - Chao (1984): “Nonparametric estimation of the number of classes in a population” --
-//!   Chao1 lower bound on species richness (used in [`crate::support_chao1`])
+//!   derivation of Chao1's lower-bound target for species richness (used in
+//!   [`crate::support_chao1`])
 //! - Flajolet, Gardy, Thimonier (1992): “Birthday paradox, coupon collectors, caching
 //!   algorithms, and self-organizing search” -- rigorous analysis of the coupon collector
 //!   and birthday problems underlying the baselines here

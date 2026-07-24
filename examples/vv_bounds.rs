@@ -12,6 +12,9 @@ fn main() {
     assert!(s_hi >= s_lo);
     assert!(h_hi >= h_lo);
 
-    println!("VV LP support bounds: [{:.3}, {:.3}]", s_lo, s_hi);
-    println!("VV LP entropy bounds (nats): [{:.6}, {:.6}]", h_lo, h_hi);
+    println!("VV-style LP support range: [{:.3}, {:.3}]", s_lo, s_hi);
+    println!(
+        "VV-style LP entropy range (nats): [{:.6}, {:.6}]",
+        h_lo, h_hi
+    );
 }

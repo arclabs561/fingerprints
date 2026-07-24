@@ -7,28 +7,31 @@
 //! - Rely on a *definition* layer for entropy/divergence on known distributions.
 //! - Put estimation policy here (bias correction, sample-size regimes, solver-backed methods).
 //!
-//! ## Estimator hierarchy
+//! ## Estimator families
 //!
-//! The entropy estimators form a bias-correction hierarchy from cheapest to most principled:
+//! The entropy estimators make different modeling and computation tradeoffs:
 //!
 //! 1. **Plug-in** -- maximum-likelihood; O(1) per fingerprint entry; negatively biased.
 //! 2. **Miller-Madow** -- adds `(S_obs - 1) / 2n`; corrects the leading O(1/n) bias term.
 //! 3. **Jackknife** -- delete-1 resampling; removes bias to higher order without a parametric model.
 //! 4. **Pitman-Yor (DPYM)** -- Bayesian nonparametric; models the unseen tail explicitly via the
-//!    Pitman-Yor process. Formally posterior-consistent under mild conditions (Hashino & Tsukuda, 2026).
+//!    Pitman-Yor process. Its construction is motivated by the consistency analysis of
+//!    Hashino & Tsukuda (2026); finite-sample calibration remains distribution-dependent.
 //!
-//! For support estimation, Chao1 provides a nonparametric lower bound on the true support size.
+//! For support estimation, Chao1 estimates a classical lower-bound target from the
+//! observed singleton and doubleton counts. A realized estimate is not itself guaranteed
+//! to lie below the true support.
 //! For unseen mass, the Good-Turing estimator is the classical baseline.
 //!
 //! ## References (orientation)
 //!
 //! - Valiant & Valiant (2013/2017): "Estimating the Unseen" (JACM)
 //! - Orlitsky line: profile / PML estimators (see [`pml`] module)
-//! - Han, Jiao, Weissman (2025): "Besting Good-Turing: Optimality of NPMLE" -- establishes
-//!   that the nonparametric MLE achieves minimax-optimal rates for symmetric functionals,
+//! - Han, Jiao, Weissman (2025): "Besting Good-Turing: Optimality of NPMLE" -- studies
+//!   optimality of NPMLE-based estimators for specified symmetric properties and losses,
 //!   providing theoretical motivation for the PML direction on our roadmap
 //! - Hashino & Tsukuda (2026): "Estimating the Shannon Entropy Using the Pitman-Yor Process" --
-//!   posterior consistency of the PY estimator implemented here
+//!   consistency analysis motivating the PY construction used here
 //!
 //! ## Quick example
 //!
@@ -119,8 +122,8 @@ pub fn empirical_simplex_from_counts(counts: &[usize]) -> Result<Vec<f64>> {
         .collect())
 }
 
-/// A fingerprint (also called a "profile" or "pattern"): the sufficient statistic for
-/// symmetric properties of an unknown distribution.
+/// A fingerprint (also called a "profile" or "pattern"): the canonical
+/// relabeling-invariant summary of a sample from an unknown distribution.
 ///
 /// `F[i]` is the number of domain elements that appear exactly `i` times in the sample.
 ///
@@ -408,8 +411,8 @@ pub fn entropy_plugin_nats(fp: &Fingerprint) -> f64 {
 ///
 /// The correction is first-order only. When \(S_{\text{obs}} \approx n\) (many singletons,
 /// undersampled regime), higher-order bias terms dominate and Miller--Madow can be *less*
-/// accurate than the plug-in estimator. In that regime, prefer [`entropy_pitman_yor_nats`]
-/// or the jackknife.
+/// accurate than the plug-in estimator. In that regime, compare estimators against a
+/// calibrated simulation or other domain-specific reference when possible.
 ///
 /// # References
 ///
@@ -444,10 +447,11 @@ pub fn entropy_miller_madow_nats(fp: &Fingerprint) -> f64 {
 /// where \(H_{n-1}\) is the plug-in entropy of the sample with one observation removed uniformly
 /// at random.
 ///
-/// This is a classical, solver-free improvement over the plug-in estimator. It removes bias to
-/// O(1/n^2) without requiring a parametric model, sitting between Miller-Madow (O(1/n) correction)
-/// and the full Bayesian nonparametric approach (Pitman-Yor). The tradeoff is higher variance
-/// than Miller-Madow for very small samples.
+/// Under smooth fixed-effective-support asymptotics, delete-one jackknifing removes the
+/// leading \(O(1/n)\) bias term, leaving an \(O(1/n^2)\) term. Growing or countably
+/// infinite supports require additional conditions. The estimator does not require a
+/// parametric population model, but its finite-sample variance can exceed
+/// Miller--Madow's.
 ///
 /// # References
 ///
@@ -552,15 +556,18 @@ pub fn unseen_mass_good_turing(fp: &Fingerprint) -> f64 {
 /// \hat M_0^{\text{MB}} = \sum_{i=1}^{r_{\max}} (-1)^{i-1} \frac{F_i}{\binom{n}{i}}
 /// \]
 ///
-/// This uses all available frequency classes to exponentially reduce bias compared to
-/// the Good--Turing estimator (which uses only `F_1`). The first term `F_1/n` equals
-/// the Good--Turing estimate; the remaining terms are its exact bias correction.
+/// The displayed alternating sum is the raw estimator analyzed by Lee and Bohme. The
+/// function returns that sum clipped to `0 <= estimate <= 1`, because an unseen probability mass
+/// must lie in that interval. Clipping changes the exact finite-sample bias identity.
+/// The first term `F_1/n` equals the Good--Turing estimate.
 ///
 /// # Tradeoffs
 ///
-/// - **Bias**: exponentially smaller than Good--Turing (O(S * p_max^n) vs O(1/n)).
+/// - **Bias**: the cited exponential bias result applies to the raw alternating sum,
+///   under the paper's distributional setup. The clipped return value can have different
+///   bias near 0 and 1.
 /// - **Variance**: can be higher than Good--Turing for skewed distributions where
-///   p_max >= 0.5. Use Good--Turing when the distribution is known to be highly skewed.
+///   `p_max >= 0.5`; estimator choice should be calibrated for the intended regime.
 /// - **Numerical**: the alternating signs and large binomial coefficients require
 ///   careful computation; the implementation uses iterative binomial coefficient
 ///   evaluation to avoid overflow.
@@ -753,7 +760,7 @@ pub fn coverage_chao_shen(fp: &Fingerprint) -> f64 {
     (1.0 - (f1 / n) * correction).clamp(0.0, 1.0)
 }
 
-/// Chao1 lower-bound estimator of the true support size.
+/// Chao1 estimator of a lower bound on the true support size.
 ///
 /// \[
 /// \hat S = S_{\text{obs}} + \frac{F_1^2}{2 F_2}
@@ -768,8 +775,10 @@ pub fn coverage_chao_shen(fp: &Fingerprint) -> f64 {
 /// The estimator satisfies \(\hat S \ge S_{\text{obs}}\). When \(F_1 = 0\) (no singletons),
 /// the estimate equals \(S_{\text{obs}}\) (no unseen species are predicted).
 ///
-/// The Chao1 estimator is a nonparametric lower bound: it is guaranteed to never overestimate
-/// the true support size (in expectation), making it safe for conservative decisions.
+/// “Lower bound” describes the population quantity used to derive Chao1, not a
+/// finite-sample guarantee for the realized estimator. Individual estimates can exceed
+/// the true support, and so can their expectation in small samples. Do not treat this
+/// estimate as a certified one-sided bound.
 ///
 /// # References
 ///
@@ -809,21 +818,21 @@ pub fn support_chao1(fp: &Fingerprint) -> f64 {
 /// Point estimate, variance, and 95% confidence interval for the Chao1 estimator.
 ///
 /// Returned by [`support_chao1_with_ci`]. The confidence interval uses the
-/// log-transformation from Chao (1987), which guarantees the lower bound
-/// is at least `S_obs`.
+/// log-transformation from Chao (1987); its lower endpoint is mechanically at least
+/// `S_obs`. This approximate interval is not a distribution-free one-sided guarantee.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chao1Estimate {
     /// Point estimate (same value as [`support_chao1`]).
     pub point: f64,
     /// Estimated variance of the point estimate.
     pub variance: f64,
-    /// Lower bound of the 95% CI.
+    /// Lower endpoint of the 95% CI.
     pub ci_lower: f64,
-    /// Upper bound of the 95% CI.
+    /// Upper endpoint of the 95% CI.
     pub ci_upper: f64,
 }
 
-/// Chao1 lower-bound estimator with variance and 95% confidence interval.
+/// Chao1 estimator with variance and an approximate 95% confidence interval.
 ///
 /// Returns the same point estimate as [`support_chao1`], plus the estimated
 /// variance (delta method) and a log-transformation 95% CI.
@@ -856,6 +865,10 @@ pub struct Chao1Estimate {
 ///
 /// where \(T = \hat S - S_{\text{obs}}\) and
 /// \(R = \exp\!\bigl(1.96 \sqrt{\ln(1 + V / T^2)}\bigr)\).
+///
+/// This interval relies on the estimator's asymptotic approximation. Its lower endpoint
+/// being at least \(S_{\text{obs}}\) does not certify coverage for every sampling
+/// distribution or finite sample.
 ///
 /// # References
 ///
@@ -926,7 +939,7 @@ pub fn support_chao1_with_ci(fp: &Fingerprint) -> Chao1Estimate {
     }
 }
 
-/// Improved Chao1 (iChao1) lower-bound estimator of the true support size.
+/// Improved Chao1 (iChao1) estimator of a lower-bound target for support size.
 ///
 /// Uses `F_3` and `F_4` in addition to `F_1` and `F_2` to reduce bias:
 ///
@@ -1283,10 +1296,10 @@ pub fn pitman_yor_params_hat(fp: &Fingerprint) -> PitmanYorParams {
 /// Parameters \((d, \alpha)\) are selected by minimizing a cross-entropy upper bound
 /// (see [`pitman_yor_params_hat`]).
 ///
-/// The PY process provides a power-law tail model for the unseen portion of the distribution,
-/// which is more realistic than the geometric tail of the Dirichlet process (d=0 case).
-/// Hashino & Tsukuda (2026) prove posterior consistency: as sample size grows, the DPYM
-/// estimator converges to the true entropy under mild regularity conditions.
+/// The PY process supplies a power-law tail model for the unseen portion of the
+/// distribution. Hashino & Tsukuda (2026) prove consistency for regularly varying
+/// discrete distributions under the conditions in their paper; that result is not a
+/// distribution-free finite-sample guarantee.
 ///
 /// When there are no singletons (\(F_1 = 0\)), the estimator reduces to the plug-in
 /// estimator (no unseen-mass correction is applied).
@@ -1310,12 +1323,13 @@ pub fn entropy_pitman_yor_nats(fp: &Fingerprint) -> f64 {
 
 /// Opinionated default entropy estimator (nats).
 ///
-/// A single-call “good default” for the **unseen regime**:
+/// The crate's current single-call policy for the **unseen regime**:
 /// - Uses the Pitman--Yor / DPYM estimator when singletons are present.
 /// - Reduces to the plug-in estimator when there are no singletons.
 ///
-/// Currently delegates to [`entropy_pitman_yor_nats`]. The routing policy may
-/// evolve in future versions as new estimators are added.
+/// Currently delegates to [`entropy_pitman_yor_nats`]. This is an opinionated
+/// convenience policy, not a claim that one estimator is uniformly preferable; callers
+/// with a known sampling regime should calibrate estimator choice for that regime.
 ///
 /// # Examples
 ///
@@ -2041,10 +2055,10 @@ mod tests {
         assert!((support_chao1(&fp) - fp.observed_support() as f64).abs() < 1e-12);
     }
 
-    // ---- fingerprint sufficiency: identical fingerprints -> identical estimates ----
+    // ---- identical fingerprints -> identical estimates ----
 
     #[test]
-    fn fingerprint_sufficiency_invariant() {
+    fn fingerprint_relabeling_invariant() {
         // Two different count vectors that produce the same fingerprint.
         // [5, 3, 1, 1] and [1, 5, 1, 3] have the same fingerprint: F[1]=2, F[3]=1, F[5]=1.
         let fp1 = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
@@ -2137,41 +2151,20 @@ mod tests {
         counts
     }
 
-    // ---- Chao1 lower-bound property test ----
+    // ---- Chao1 finite-sample semantics ----
 
     #[test]
-    fn chao1_is_lower_bound_on_average() {
-        // Chao1 is a lower bound in expectation: E[Chao1] <= S_true.
-        // Individual samples can exceed S (it is a biased estimator), but
-        // the average over many samples should not exceed the true support.
-        let s = 100usize;
-        let alpha = 1.5_f64;
+    fn chao1_can_overestimate_true_support_in_expectation() {
+        // Draw three times from two equiprobable species. Of the eight equally likely
+        // labeled sequences, two produce counts [3] and Chao1 = 1; six produce counts
+        // [2, 1] and Chao1 = 2.5. The exact expectation is therefore 17/8 = 2.125,
+        // greater than the true support 2.
+        let all_same = Fingerprint::from_counts([3]).unwrap();
+        let mixed = Fingerprint::from_counts([2, 1]).unwrap();
+        let expected = (2.0 * support_chao1(&all_same) + 6.0 * support_chao1(&mixed)) / 8.0;
 
-        let unnorm: Vec<f64> = (1..=s).map(|i| 1.0 / (i as f64).powf(alpha)).collect();
-        let z: f64 = unnorm.iter().sum();
-        let probs: Vec<f64> = unnorm.iter().map(|u| u / z).collect();
-
-        let n = 500usize;
-        let n_trials = 50;
-        let mut sum_chao1 = 0.0;
-        for trial in 0..n_trials {
-            let seed = 0xDEAD_BEEF_u64
-                .wrapping_add(trial as u64)
-                .wrapping_mul(0x9E37_79B9_7F4A_7C15);
-            let counts = deterministic_zipf_sample(s, &probs, n, seed);
-            let fp = Fingerprint::from_counts(counts).unwrap();
-            let s_hat = support_chao1(&fp);
-            // Chao1 is always >= S_obs.
-            assert!(s_hat >= fp.observed_support() as f64 - 1e-9);
-            sum_chao1 += s_hat;
-        }
-        let mean_chao1 = sum_chao1 / n_trials as f64;
-        // Mean Chao1 should be <= S_true (lower bound property).
-        // Allow small slack for finite-sample variance.
-        assert!(
-            mean_chao1 <= s as f64 + 5.0,
-            "mean Chao1 {mean_chao1:.1} >> true S={s}"
-        );
+        assert!((expected - 17.0 / 8.0).abs() < 1e-12);
+        assert!(expected > 2.0);
     }
 
     // ---- from_frequency_counts trailing zero normalization ----

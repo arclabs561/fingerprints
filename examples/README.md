@@ -20,7 +20,8 @@ n=19 S_obs=8 H_plugin=1.9097 H_MM=2.0939 H_JK=2.1923 H_PY=2.6595 (d=0.193, α=3.
 ### `unseen_report`: how do I inspect one sample from the command line?
 
 Takes per-symbol counts as arguments and prints the full unseen-regime report in
-nats and bits, including VV LP bounds when the `lp` feature is enabled.
+nats and bits, including VV-style grid-feasible LP ranges when the `lp` feature
+is enabled.
 
 ```bash
 cargo run --release --example unseen_report -- 5 4 3 2 2 1 1 1
@@ -36,16 +37,17 @@ entropy (bits):
   jackknife      3.162851
   Pitman-Yor     3.836913
 
-VV LP support bounds: [8.000, 143.707]
-VV LP entropy bounds (nats): [0.113688, 3.411798]
+VV-style LP support range: [8.000, 143.707]
+VV-style LP entropy range (nats): [0.113688, 3.411798]
 ```
 
 ## Estimator families
 
-### `pml_uniform`: can profile likelihood recover a near-uniform support size?
+### `pml_uniform`: which support size fits best within the uniform family?
 
-Runs profile maximum likelihood over the uniform family and returns the support
-size with the best profile log-likelihood.
+Compares support sizes under a uniform-distribution assumption and returns the
+one with the highest profile log-likelihood. It does not optimize over
+non-uniform distributions.
 
 ```bash
 cargo run --release --example pml_uniform
@@ -54,17 +56,19 @@ cargo run --release --example pml_uniform
 best_uniform_support_size: Ŝ=8 (observed distinct m=8) ll=-3.1934
 ```
 
-### `vv_bounds`: what do Valiant-Valiant LP bounds say?
+### `vv_bounds`: what range does the VV-style LP admit?
 
-Computes LP-backed support and entropy bounds for the same small fingerprint.
-This example needs the default `lp` feature.
+Computes the minimum and maximum support and entropy over the scaffold's
+configured discretized feasible set. These are sensitivity ranges, not
+confidence intervals for the true properties. This example needs the default
+`lp` feature.
 
 ```bash
 cargo run --release --example vv_bounds --features lp
 ```
 ```text
-VV LP support bounds: [8.000, 143.707]
-VV LP entropy bounds (nats): [0.113688, 3.411798]
+VV-style LP support range: [8.000, 143.707]
+VV-style LP entropy range (nats): [0.113688, 3.411798]
 ```
 
 ### `pitman_yor_zipf`: how do estimators behave on a heavy-tailed distribution?
@@ -99,17 +103,17 @@ cargo run --release --example vocab_coverage
 ```text
 --- Vocabulary Coverage Report ---
 
-Tokens (n):              178
-Unique types (S_obs):    118
-Singletons (F1):         92
-Doubletons (F2):         16
+Tokens (n):              186
+Unique types (S_obs):    123
+Singletons (F1):         97
+Doubletons (F2):         15
 
-Good-Turing unseen mass: 0.5169
-Good-Turing coverage:    0.4831
-Chao1 vocab estimate:    382.5
-Entropy (bits, PY):      8.4441
+Good-Turing unseen mass: 0.5215
+Good-Turing coverage:    0.4785
+Chao1 vocab estimate:    436.6
+Entropy (bits, PY):      8.5168
 
-Observed/estimated vocab: 30.8% (118 of 382 estimated types)
+Observed/estimated vocab: 28.2% (123 of 437 estimated types)
 High unseen mass -- the sample covers a small fraction of the vocabulary.
 ```
 
