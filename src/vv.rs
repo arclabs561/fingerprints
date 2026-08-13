@@ -87,6 +87,32 @@ fn mass_eps(n: usize, eps_scale: f64) -> f64 {
     (eps_scale / n.sqrt()).clamp(1e-6, 0.05)
 }
 
+fn validate_params(params: &LpParams) -> Result<()> {
+    if params.k == 0 {
+        return Err(EstimationError::Invalid("k must be greater than zero"));
+    }
+    if !params.eps_scale.is_finite() || params.eps_scale <= 0.0 {
+        return Err(EstimationError::Invalid(
+            "eps_scale must be finite and greater than zero",
+        ));
+    }
+    if params.p_max > 1.0 {
+        return Err(EstimationError::Invalid("p_max must not exceed 1"));
+    }
+    Ok(())
+}
+
+fn validate_endpoints(lower: f64, upper: f64) -> Result<(f64, f64)> {
+    if !lower.is_finite() || !upper.is_finite() {
+        return Err(EstimationError::Invalid("LP returned non-finite endpoints"));
+    }
+    if lower < -1e-9 || upper < -1e-9 || upper + 1e-9 < lower {
+        return Err(EstimationError::Invalid("LP returned invalid endpoints"));
+    }
+    let lower = lower.max(0.0);
+    Ok((lower, upper.max(lower)))
+}
+
 use crate::ln_factorial;
 
 fn poisson_pmf(i: usize, lambda: f64) -> f64 {
@@ -133,7 +159,8 @@ fn grid_log_space(p_min: f64, p_max: f64, m: usize) -> Result<Vec<f64>> {
 ///
 /// # Errors
 ///
-/// Returns [`EstimationError::Invalid`] if the sample size is zero or the LP is infeasible.
+/// Returns [`EstimationError::Invalid`] if the sample size or LP parameters are invalid,
+/// the LP is infeasible, or the solver returns invalid endpoints.
 ///
 /// # Examples
 ///
@@ -153,6 +180,7 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
     if n == 0 {
         return Err(EstimationError::Invalid("sample size is zero"));
     }
+    validate_params(&params)?;
     let s_obs = fp.observed_support() as f64;
 
     let k = params.k.min(fp.max_freq()).max(1);
@@ -205,7 +233,7 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
 
     let lower = solve(OptimizationDirection::Minimize)?;
     let upper = solve(OptimizationDirection::Maximize)?;
-    Ok((lower, upper))
+    validate_endpoints(lower, upper)
 }
 
 /// Compute the minimum and maximum Shannon entropy (nats) using the same VV-style
@@ -227,7 +255,8 @@ pub fn support_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
 ///
 /// # Errors
 ///
-/// Returns [`EstimationError::Invalid`] if the sample size is zero or the LP is infeasible.
+/// Returns [`EstimationError::Invalid`] if the sample size or LP parameters are invalid,
+/// the LP is infeasible, or the solver returns invalid endpoints.
 ///
 /// # Examples
 ///
@@ -247,6 +276,7 @@ pub fn entropy_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
     if n == 0 {
         return Err(EstimationError::Invalid("sample size is zero"));
     }
+    validate_params(&params)?;
     let s_obs = fp.observed_support() as f64;
 
     let k = params.k.min(fp.max_freq()).max(1);
@@ -302,7 +332,7 @@ pub fn entropy_bounds_lp(fp: &Fingerprint, params: LpParams) -> Result<(f64, f64
 
     let lower = solve(OptimizationDirection::Minimize)?;
     let upper = solve(OptimizationDirection::Maximize)?;
-    Ok((lower, upper))
+    validate_endpoints(lower, upper)
 }
 
 #[cfg(test)]
@@ -402,5 +432,59 @@ mod tests {
         assert!(params.p_min > 0.0);
         assert!(params.p_max >= params.p_min);
         assert!(params.eps_scale > 0.0);
+    }
+
+    #[test]
+    fn lp_params_reject_probability_grid_above_one() {
+        let fp = Fingerprint::from_counts([5usize, 4, 3, 2, 2, 1, 1, 1]).unwrap();
+        let mut params = LpParams::default_for(&fp);
+        params.p_max = 2.0;
+
+        assert!(support_bounds_lp(&fp, params.clone()).is_err());
+        assert!(entropy_bounds_lp(&fp, params).is_err());
+    }
+
+    #[test]
+    fn lp_params_reject_nonpositive_or_nonfinite_eps_scale() {
+        let fp = Fingerprint::from_counts([5usize, 4, 3, 2, 2, 1, 1, 1]).unwrap();
+        for eps_scale in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut params = LpParams::default_for(&fp);
+            params.eps_scale = eps_scale;
+
+            assert!(support_bounds_lp(&fp, params.clone()).is_err());
+            assert!(entropy_bounds_lp(&fp, params).is_err());
+        }
+    }
+
+    #[test]
+    fn lp_params_reject_zero_fingerprint_entries() {
+        let fp = Fingerprint::from_counts([5usize, 4, 3, 2, 2, 1, 1, 1]).unwrap();
+        let mut params = LpParams::default_for(&fp);
+        params.k = 0;
+
+        assert!(support_bounds_lp(&fp, params.clone()).is_err());
+        assert!(entropy_bounds_lp(&fp, params).is_err());
+    }
+
+    #[test]
+    fn successful_endpoints_are_finite_ordered_and_nonnegative() {
+        let fixtures = [
+            vec![50usize],
+            vec![20usize, 20, 20, 20, 20],
+            vec![5usize, 4, 3, 2, 2, 1, 1, 1],
+        ];
+
+        for counts in fixtures {
+            let fp = Fingerprint::from_counts(counts).unwrap();
+            let params = LpParams::default_for(&fp);
+            for (lower, upper) in [
+                support_bounds_lp(&fp, params.clone()).unwrap(),
+                entropy_bounds_lp(&fp, params).unwrap(),
+            ] {
+                assert!(lower.is_finite() && upper.is_finite());
+                assert!(lower >= 0.0);
+                assert!(upper + 1e-9 >= lower);
+            }
+        }
     }
 }
