@@ -2,12 +2,21 @@
 name = "fingerprints"
 version = "0.2.1"
 edition = "2021"
+rust-version = "1.87"
 description = "Property estimation from samples"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/arclabs561/fingerprints"
 homepage = "https://github.com/arclabs561/fingerprints"
 readme = "README.md"
-keywords = ["statistics", "estimation", "entropy", "mutual-information", "support"]
+include = [
+  "/src/**/*.rs",
+  "/examples/**/*.rs",
+  "/Cargo.toml",
+  "/CHANGELOG.md",
+  "/LICENSE*",
+  "/README.md",
+]
+keywords = ["statistics", "estimation", "entropy", "species-richness", "support"]
 categories = ["algorithms", "science", "mathematics"]
 
 [workspace]
