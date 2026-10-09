@@ -73,8 +73,9 @@ assert!(h_bits >= 0.0);
   - `to_bits(nats)` converts nats to bits
 - **Coverage / support**:
   - `coverage_good_turing` (sample coverage `C_hat = 1 - F_1/n`)
+  - `coverage_chao_jost` (Chao & Jost 2012 coverage using `F_1` and `F_2`)
   - `unseen_mass_good_turing` (unseen mass `p0_hat ~ F_1/n`)
-  - `support_chao1`
+  - `support_chao1`, `support_chao1_with_ci`, `support_ichao1`
 - **Coverage baselines / toy problems** (`fingerprints::coverage`):
   - `german_tank_unbiased_*`: finite-support "max serial number" baseline (sampling without replacement). See [German tank problem](https://en.wikipedia.org/wiki/German_tank_problem)
   - `coupon_collector_expected_draws`, `expected_distinct_uniform`: uniform coverage baselines. See [Coupon collector's problem](https://en.wikipedia.org/wiki/Coupon_collector%27s_problem)
@@ -129,7 +130,10 @@ revealed), the problem ecology calls species richness:
 cargo test --all-features
 ```
 
-The suite includes unit and documentation tests.
+The suite includes unit and documentation tests. `tests/estimator_references.rs`
+checks iChao1 and Chao-Jost coverage against the published formulas and runs a
+seeded Monte Carlo check that Miller-Madow and Pitman-Yor have lower error than
+the plug-in estimator on undersampled Zipf data.
 
 ## Roadmap (near-term)
 
@@ -146,7 +150,7 @@ Key papers motivating the estimator families in this crate:
 - Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM): unseen-property estimation
 - Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood": broad-optimality results under stated conditions
 - Hashino & Tsukuda (2026), "Estimating the Shannon Entropy Using the Pitman-Yor Process": PY entropy estimator
-- Han, Jiao, Weissman (2025), "Besting Good-Turing: Optimality of NPMLE": theoretical motivation for PML direction
+- Han, Niles-Weed, Shen, Wu (2025), "Besting Good-Turing: Optimality of NPMLE" ([arXiv:2509.07355](https://arxiv.org/abs/2509.07355)): an empirical-Bayes estimator built on the Kiefer-Wolfowitz NPMLE; background for the PML direction, not implemented here
 
 Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and many symmetric abundance-based diversity indices can be expressed as fingerprint-based estimation problems. See:
 

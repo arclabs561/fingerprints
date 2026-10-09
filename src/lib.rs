@@ -27,9 +27,10 @@
 //!
 //! - Valiant & Valiant (2013/2017): "Estimating the Unseen" (JACM)
 //! - Orlitsky line: profile / PML estimators (see [`pml`] module)
-//! - Han, Jiao, Weissman (2025): "Besting Good-Turing: Optimality of NPMLE" -- studies
-//!   optimality of NPMLE-based estimators for specified symmetric properties and losses,
-//!   providing theoretical motivation for the PML direction on our roadmap
+//! - Han, Niles-Weed, Shen, Wu (2025): "Besting Good-Turing: Optimality of NPMLE"
+//!   (arXiv:2509.07355) -- an empirical-Bayes estimator of per-symbol probabilities
+//!   built on the Kiefer-Wolfowitz NPMLE. This crate does not implement it; it is
+//!   background for the profile-likelihood direction on the roadmap
 //! - Hashino & Tsukuda (2026): "Estimating the Shannon Entropy Using the Pitman-Yor Process" --
 //!   consistency analysis motivating the PY construction used here
 //!
@@ -56,6 +57,11 @@
 use core::cmp::Ordering;
 use core::num::NonZeroUsize;
 use thiserror::Error;
+
+// Compile and run the README's Rust examples as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 
 pub mod coverage;
 pub mod pml;
@@ -638,7 +644,7 @@ fn binom_f64(n: usize, k: usize) -> f64 {
 /// unseen_mass_good_turing(fp)`. When coverage is 1.0 (no singletons), all observed
 /// species have been seen at least twice, suggesting the sample may be adequate.
 ///
-/// For a bias-corrected variant using doubletons, see [`coverage_chao_shen`].
+/// For a bias-corrected variant using doubletons, see [`coverage_chao_jost`].
 ///
 /// # Examples
 ///
@@ -711,38 +717,40 @@ pub fn good_turing_estimate(fp: &Fingerprint, r: usize) -> Option<f64> {
     Some(((r + 1) as f64 / n) * (f_r1 / f_r as f64))
 }
 
-/// Chao--Shen bias-corrected sample coverage.
+/// Chao--Jost bias-corrected sample coverage.
 ///
 /// An improved coverage estimator that uses both singletons and doubletons:
 ///
 /// \[
-/// \hat C_{\text{CS}} = 1 - \frac{F_1}{n} \cdot \frac{(n-1) F_1}{(n-1) F_1 + 2 F_2}
+/// \hat C_{\text{CJ}} = 1 - \frac{F_1}{n} \cdot \frac{(n-1) F_1}{(n-1) F_1 + 2 F_2}
 /// \]
 ///
 /// When `F_2 > 0`, the correction factor is strictly less than 1, so
-/// `coverage_chao_shen >= coverage_good_turing`. When `F_2 = 0`, the correction
+/// `coverage_chao_jost >= coverage_good_turing`. When `F_2 = 0`, the correction
 /// factor equals 1 and both estimators coincide.
+///
+/// The Chao & Shen (2003) entropy estimator uses the plain Good--Turing coverage
+/// `1 - F_1 / n` ([`coverage_good_turing`]), not this one.
 ///
 /// # References
 ///
-/// - Chao & Shen (2003), "Nonparametric estimation of Shannon's index of diversity
-///   when there are unseen species in sample" (Environmental and Ecological Statistics)
-/// - Chao, Wang, Jost (2013), "Coverage-based rarefaction and extrapolation" --
-///   derives the coverage estimator from the Good--Turing frequency formula
+/// - Chao & Jost (2012), "Coverage-based rarefaction and extrapolation: standardizing
+///   samples by completeness rather than size" (Ecology) -- derives this estimator
+///   from the Good--Turing frequency formula
 ///
 /// # Examples
 ///
 /// ```
-/// use fingerprints::{Fingerprint, coverage_chao_shen, coverage_good_turing};
+/// use fingerprints::{Fingerprint, coverage_chao_jost, coverage_good_turing};
 ///
 /// let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
-/// let c_cs = coverage_chao_shen(&fp);
+/// let c_cj = coverage_chao_jost(&fp);
 /// let c_gt = coverage_good_turing(&fp);
-/// // Chao-Shen is always at least as high as basic Good-Turing.
-/// assert!(c_cs >= c_gt - 1e-12);
+/// // Chao-Jost is always at least as high as basic Good-Turing.
+/// assert!(c_cj >= c_gt - 1e-12);
 /// ```
 #[must_use]
-pub fn coverage_chao_shen(fp: &Fingerprint) -> f64 {
+pub fn coverage_chao_jost(fp: &Fingerprint) -> f64 {
     let n = fp.sample_size() as f64;
     if n <= 0.0 {
         return 1.0;
@@ -758,6 +766,16 @@ pub fn coverage_chao_shen(fp: &Fingerprint) -> f64 {
     }
     let correction = (n - 1.0) * f1 / denom;
     (1.0 - (f1 / n) * correction).clamp(0.0, 1.0)
+}
+
+/// Former name of [`coverage_chao_jost`].
+///
+/// The formula is the Chao & Jost (2012) coverage estimator; Chao & Shen (2003)
+/// use [`coverage_good_turing`].
+#[deprecated(note = "this is the Chao-Jost estimator; use `coverage_chao_jost`")]
+#[must_use]
+pub fn coverage_chao_shen(fp: &Fingerprint) -> f64 {
+    coverage_chao_jost(fp)
 }
 
 /// Chao1 estimator of a lower bound on the true support size.
@@ -941,15 +959,20 @@ pub fn support_chao1_with_ci(fp: &Fingerprint) -> Chao1Estimate {
 
 /// Improved Chao1 (iChao1) estimator of a lower-bound target for support size.
 ///
-/// Uses `F_3` and `F_4` in addition to `F_1` and `F_2` to reduce bias:
+/// Uses `F_3` and `F_4` in addition to `F_1` and `F_2` to reduce bias
+/// (Chiu et al. 2014, with their finite-sample factors):
 ///
 /// \[
-/// \hat S_{\text{iChao1}} = \hat S_{\text{Chao1}} + \frac{F_3}{4 F_4}
-///   \max\!\left(F_1 - \frac{F_2 F_3}{2 F_4},\; 0\right)
+/// \hat S_{\text{iChao1}} = \hat S_{\text{Chao1-bc}} + \frac{n-3}{4n} \frac{F_3}{F_4}
+///   \max\!\left(F_1 - \frac{n-3}{2(n-1)} \frac{F_2 F_3}{F_4},\; 0\right)
 /// \]
 ///
-/// Falls back to [`support_chao1`] when `F_4 = 0` (correction undefined)
-/// or `F_3 = 0` (correction is zero).
+/// where \(\hat S_{\text{Chao1-bc}} = S_{\text{obs}} + \frac{n-1}{n}\frac{F_1^2}{2F_2}\)
+/// (or \(S_{\text{obs}} + \frac{n-1}{n}\frac{F_1(F_1-1)}{2}\) when `F_2 = 0`) is the
+/// bias-corrected Chao1 that Chiu et al. build on. It carries a `(n-1)/n` factor, so
+/// iChao1 can be slightly below [`support_chao1`] when the correction term is small.
+/// When `F_4 = 0`, `F_4` is replaced by `F_4 + 1`, following the Chao group's SpadeR
+/// implementation.
 ///
 /// # References
 ///
@@ -964,22 +987,33 @@ pub fn support_chao1_with_ci(fp: &Fingerprint) -> Chao1Estimate {
 ///
 /// let fp = Fingerprint::from_counts([10, 5, 3, 2, 1, 1, 1, 1]).unwrap();
 /// let s_ichao = support_ichao1(&fp);
-/// let s_chao = support_chao1(&fp);
-/// // iChao1 is always at least Chao1.
-/// assert!(s_ichao >= s_chao - 1e-12);
+/// // iChao1 never predicts fewer species than were observed.
+/// assert!(s_ichao >= fp.observed_support() as f64);
 /// ```
 #[must_use]
 pub fn support_ichao1(fp: &Fingerprint) -> f64 {
-    let s_chao1 = support_chao1(fp);
+    let s_obs = fp.observed_support() as f64;
+    let n = fp.sample_size() as f64;
+    let f1 = fp.singletons() as f64;
+    if f1 <= 0.0 || n <= 1.0 {
+        return s_obs;
+    }
+    let f2 = fp.doubletons() as f64;
     let f3 = fp.count_at(3) as f64;
     let f4 = fp.count_at(4) as f64;
-    if f4 <= 0.0 || f3 <= 0.0 {
-        return s_chao1;
+    let shrink = (n - 1.0) / n;
+    let s_chao1_bc = if f2 > 0.0 {
+        s_obs + shrink * f1 * f1 / (2.0 * f2)
+    } else {
+        s_obs + shrink * f1 * (f1 - 1.0) / 2.0
+    };
+    if f3 <= 0.0 {
+        return s_chao1_bc;
     }
-    let f1 = fp.singletons() as f64;
-    let f2 = fp.doubletons() as f64;
-    let correction = (f3 / (4.0 * f4)) * (f1 - f2 * f3 / (2.0 * f4)).max(0.0);
-    s_chao1 + correction
+    let f4 = if f4 > 0.0 { f4 } else { 1.0 };
+    let lead = ((n - 3.0) / (4.0 * n)).max(0.0);
+    let inner = f1 - (n - 3.0) / (2.0 * (n - 1.0)) * f2 * f3 / f4;
+    s_chao1_bc + lead * (f3 / f4) * inner.max(0.0)
 }
 
 /// Selected hyperparameters for the Pitman–Yor entropy estimator.
@@ -1451,12 +1485,12 @@ mod tests {
         }
 
         #[test]
-        fn coverage_chao_shen_ge_basic(counts in prop::collection::vec(1usize..50, 1..200)) {
+        fn coverage_chao_jost_ge_basic(counts in prop::collection::vec(1usize..50, 1..200)) {
             let fp = Fingerprint::from_counts(counts).unwrap();
-            let c_cs = coverage_chao_shen(&fp);
+            let c_cs = coverage_chao_jost(&fp);
             let c_gt = coverage_good_turing(&fp);
             prop_assert!(c_cs >= c_gt - 1e-12,
-                "Chao-Shen {} < basic GT {}", c_cs, c_gt);
+                "Chao-Jost {} < basic GT {}", c_cs, c_gt);
             prop_assert!(c_cs >= 0.0 - 1e-12);
             prop_assert!(c_cs <= 1.0 + 1e-12);
         }
@@ -1476,12 +1510,12 @@ mod tests {
         }
 
         #[test]
-        fn ichao1_ge_chao1(counts in prop::collection::vec(1usize..50, 1..200)) {
+        fn ichao1_ge_observed(counts in prop::collection::vec(1usize..50, 1..200)) {
             let fp = Fingerprint::from_counts(counts).unwrap();
             let s_ichao = support_ichao1(&fp);
-            let s_chao = support_chao1(&fp);
-            prop_assert!(s_ichao >= s_chao - 1e-12,
-                "iChao1 {} < Chao1 {}", s_ichao, s_chao);
+            let s_obs = fp.observed_support() as f64;
+            prop_assert!(s_ichao >= s_obs - 1e-12,
+                "iChao1 {} < S_obs {}", s_ichao, s_obs);
         }
 
         #[test]
@@ -1917,23 +1951,23 @@ mod tests {
         assert!((mb - 0.15).abs() < 1e-12, "expected 0.15, got {}", mb);
     }
 
-    // ---- coverage_chao_shen ----
+    // ---- coverage_chao_jost ----
 
     #[test]
-    fn coverage_chao_shen_no_singletons_is_one() {
+    fn coverage_chao_jost_no_singletons_is_one() {
         let fp = Fingerprint::from_counts([4, 4, 4]).unwrap();
-        assert!((coverage_chao_shen(&fp) - 1.0).abs() < 1e-15);
+        assert!((coverage_chao_jost(&fp) - 1.0).abs() < 1e-15);
     }
 
     #[test]
-    fn coverage_chao_shen_known_value() {
+    fn coverage_chao_jost_known_value() {
         // counts [5, 3, 2, 1, 1]: n=12, F_1=2, F_2=1
         let fp = Fingerprint::from_counts([5, 3, 2, 1, 1]).unwrap();
         let n = 12.0;
         let f1 = 2.0;
         let f2 = 1.0;
         let expected = 1.0 - (f1 / n) * ((n - 1.0) * f1 / ((n - 1.0) * f1 + 2.0 * f2));
-        assert!((coverage_chao_shen(&fp) - expected).abs() < 1e-12);
+        assert!((coverage_chao_jost(&fp) - expected).abs() < 1e-12);
     }
 
     // ---- support_chao1_with_ci ----
@@ -1964,29 +1998,22 @@ mod tests {
     // ---- support_ichao1 ----
 
     #[test]
-    fn ichao1_equals_chao1_when_f4_zero() {
+    fn ichao1_replaces_zero_f4_by_one() {
+        // counts [5, 3, 1, 1]: n=10, S_obs=4, F_1=2, F_2=0, F_3=1, F_4=0.
+        // Chao1-bc = 4 + (9/10) * 2 * 1 / 2 = 4.9; with F_4 -> 1 the
+        // correction is (7/40) * 1 * max(2 - 0, 0) = 0.35.
         let fp = Fingerprint::from_counts([5, 3, 1, 1]).unwrap();
         assert_eq!(fp.count_at(4), 0);
-        assert!((support_ichao1(&fp) - support_chao1(&fp)).abs() < 1e-12);
+        assert!((support_ichao1(&fp) - 5.25).abs() < 1e-12);
     }
 
     #[test]
     fn ichao1_known_value() {
-        // counts [10, 5, 3, 2, 1, 1, 1, 1]: F_1=4, F_2=1, F_3=1, F_4=0, F_5=1, F_10=1
-        // f4=0, so iChao1 == Chao1
-        let fp = Fingerprint::from_counts([10, 5, 3, 2, 1, 1, 1, 1]).unwrap();
-        assert!((support_ichao1(&fp) - support_chao1(&fp)).abs() < 1e-12);
-
-        // Build a case where f3 > 0 and f4 > 0:
-        // counts [4, 4, 3, 3, 2, 2, 1, 1]: F_1=2, F_2=2, F_3=2, F_4=2
+        // counts [4, 4, 3, 3, 2, 2, 1, 1]: n=20, S_obs=8, F_1=F_2=F_3=F_4=2.
+        // Chao1-bc = 8 + (19/20) * 4 / 4 = 8.95.
+        // Correction = (17/80) * 1 * max(2 - (17/38) * 2 * 2 / 2, 0) = 0.2348684...
         let fp2 = Fingerprint::from_counts([4, 4, 3, 3, 2, 2, 1, 1]).unwrap();
-        let f1 = 2.0_f64;
-        let f2 = 2.0;
-        let f3 = 2.0;
-        let f4 = 2.0;
-        let chao1 = support_chao1(&fp2);
-        let correction = (f3 / (4.0 * f4)) * (f1 - f2 * f3 / (2.0 * f4)).max(0.0);
-        let expected = chao1 + correction;
+        let expected = 8.95 + (17.0 / 80.0) * (2.0 - 17.0 / 38.0 * 2.0);
         assert!((support_ichao1(&fp2) - expected).abs() < 1e-12);
     }
 
