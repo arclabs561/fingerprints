@@ -121,7 +121,7 @@ revealed), the problem ecology calls species richness:
 - `cargo run --example vv_bounds` explores grid-feasible support and entropy ranges from the VV-style LP scaffold (uses the default `lp` feature).
 - `cargo run --example pitman_yor_zipf` samples from a finite Zipf distribution and compares four entropy estimators as the sample grows.
 - `cargo run --example unseen_report -- 5 4 3 2 2 1 1 1` takes per-symbol counts on the command line and prints the full unseen-regime report.
-- `cargo run --example vocab_coverage` estimates how much of a text sample's vocabulary the sample has already revealed, the species-richness question on words.
+- `cargo run --example vocab_coverage` estimates unseen vocabulary from word counts.
 - `cargo run --example mdl_codelength` compares two-part codelengths for exact and task-level representations, the MDL/Kolmogorov foothold.
 
 ## Tests
