@@ -60,8 +60,7 @@ assert!(h_bits >= 0.0);
 
 ## API tour
 
-- **Fingerprint abstraction**:
-  - `Fingerprint::from_counts`, `Fingerprint::from_frequency_counts`, `sample_size`, `observed_support`, `singletons`, `doubletons`, `count`, `max_freq`, `iter`, `as_slice`, `observed_species`
+- **Fingerprint abstraction**: `Fingerprint::from_counts`, `Fingerprint::from_frequency_counts`
 - **Entropy estimators (nats)**:
   - `entropy_default_nats` (opinionated default; currently aliases Pitman-Yor)
   - `entropy_plugin_nats`
@@ -135,26 +134,15 @@ checks iChao1 and Chao-Jost coverage against the published formulas and runs a
 seeded Monte Carlo check that Miller-Madow and Pitman-Yor have lower error than
 the plug-in estimator on undersampled Zipf data.
 
-## Roadmap (near-term)
-
-- VV-style LP constraints that better track classical VV practice (grid policy, tighter moments).
-- PML beyond the uniform family (solver/heuristics; keep behind clear, opt-in APIs).
-- More properties beyond entropy/support (e.g. distance-to-uniformity proxies).
-
 ## References
 
-Key papers motivating the estimator families in this crate:
+Papers behind the implemented estimators:
 
 - Good (1953), "The population frequencies of species and the estimation of population parameters": Good-Turing coverage
 - Chao (1984), "Nonparametric estimation of the number of classes in a population": Chao1 support estimator
 - Valiant & Valiant (2017), "Estimating the Unseen: Improved Estimators for Entropy and other Properties" (JACM): unseen-property estimation
 - Hao & Orlitsky (2019), "The Broad Optimality of Profile Maximum Likelihood": broad-optimality results under stated conditions
 - Hashino & Tsukuda (2026), "Estimating the Shannon Entropy Using the Pitman-Yor Process": PY entropy estimator
-- Han, Niles-Weed, Shen, Wu (2025), "Besting Good-Turing: Optimality of NPMLE" ([arXiv:2509.07355](https://arxiv.org/abs/2509.07355)): an empirical-Bayes estimator built on the Kiefer-Wolfowitz NPMLE; background for the PML direction, not implemented here
-
-Ecology and biodiversity estimation is a primary motivating application domain for these methods. Species richness estimation, unseen species prediction, and many symmetric abundance-based diversity indices can be expressed as fingerprint-based estimation problems. See:
-
-- Chen & Shen (2025), "Biogeographic Patterns of Estimation Bias of Biodiversity Indices": documents systematic estimation bias in biodiversity indices across geographic contexts, underscoring the need for bias-corrected estimators
 
 ## License
 
