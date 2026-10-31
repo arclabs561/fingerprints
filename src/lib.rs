@@ -213,7 +213,9 @@ impl Fingerprint {
     /// # Errors
     ///
     /// Returns [`EstimationError::EmptySample`] if the iterator is empty, or
-    /// [`EstimationError::Invalid`] if all counts are zero.
+    /// [`EstimationError::Invalid`] if all counts are zero or the largest count
+    /// is too large to allocate the dense counts-of-counts vector (one slot per
+    /// multiplicity up to the largest count).
     pub fn from_counts<I>(counts: I) -> Result<Self>
     where
         I: IntoIterator<Item = usize>,
@@ -226,7 +228,11 @@ impl Fingerprint {
         if max_c == 0 {
             return Err(EstimationError::Invalid("all counts are zero"));
         }
-        let mut f = vec![0usize; max_c + 1];
+        let too_large = || EstimationError::Invalid("count too large for a dense fingerprint");
+        let len = max_c.checked_add(1).ok_or_else(too_large)?;
+        let mut f = Vec::new();
+        f.try_reserve_exact(len).map_err(|_| too_large())?;
+        f.resize(len, 0usize);
         for c in counts {
             if c == 0 {
                 continue;
@@ -1768,6 +1774,14 @@ mod tests {
     fn from_counts_rejects_all_zeros() {
         let result = Fingerprint::from_counts(vec![0, 0, 0]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_counts_huge_count_is_an_error_not_a_panic() {
+        // max + 1 overflows usize.
+        assert!(Fingerprint::from_counts([usize::MAX, 1]).is_err());
+        // max + 1 slots overflow the allocator's capacity limit.
+        assert!(Fingerprint::from_counts([usize::MAX - 1, 1]).is_err());
     }
 
     #[test]
