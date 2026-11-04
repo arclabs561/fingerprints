@@ -206,15 +206,6 @@ pub fn best_uniform_support_size(counts: &[usize], s_max: usize) -> Result<(usiz
     Ok((best_s, best_ll))
 }
 
-fn log_sum_exp(xs: &[f64]) -> f64 {
-    let m = xs.iter().copied().fold(f64::NEG_INFINITY, |a, b| a.max(b));
-    if !m.is_finite() {
-        return m;
-    }
-    let s: f64 = xs.iter().map(|&x| (x - m).exp()).sum();
-    m + s.ln()
-}
-
 /// Exact log profile-likelihood for **small** observed support (\(m \le 20\)).
 ///
 /// `probs` must contain one component for every entry in `counts`. The calculation
@@ -310,7 +301,7 @@ pub fn profile_log_likelihood_small(counts: &[usize], probs: &[f64], tol: f64) -
                     row_terms.push(val);
                 }
             }
-            let row_ln = log_sum_exp(&row_terms);
+            let row_ln = logp::log_sum_exp(&row_terms);
             prod_ln += row_ln;
         }
         terms.push(sign * prod_ln.exp());
