@@ -253,7 +253,8 @@ impl Fingerprint {
     ///
     /// # Errors
     ///
-    /// Returns [`EstimationError::Invalid`] if `f[0] != 0` or if all entries are zero.
+    /// Returns [`EstimationError::Invalid`] if `f[0] != 0`, if all entries are zero,
+    /// or if the sample size `sum_i i * f[i]` does not fit in `usize`.
     /// Returns [`EstimationError::EmptySample`] if the vector is empty.
     ///
     /// # Examples
@@ -279,6 +280,11 @@ impl Fingerprint {
         if f.iter().skip(1).all(|&fi| fi == 0) {
             return Err(EstimationError::Invalid("all frequency counts are zero"));
         }
+        // sample_size() sums i * f[i] in usize; reject fingerprints it cannot represent.
+        f.iter()
+            .enumerate()
+            .try_fold(0usize, |n, (i, &fi)| n.checked_add(i.checked_mul(fi)?))
+            .ok_or(EstimationError::Invalid("sample size overflows usize"))?;
         let mut v = f.to_vec();
         // Strip trailing zeros so semantically-identical fingerprints are equal.
         while v.len() > 1 && v.last() == Some(&0) {
@@ -680,7 +686,11 @@ pub fn coverage_good_turing(fp: &Fingerprint) -> f64 {
 ///
 /// # Properties
 ///
-/// - **Normalization**: `unseen_mass + sum_r theta_hat(r) * F_r = 1` for all fingerprints.
+/// - **Normalization**: `unseen_mass + sum_r theta_hat(r) * F_r = 1` when `F_r > 0` for
+///   every `1 <= r < r_max`. If some `F_r = 0` while `F_{r+1} > 0`, `theta_hat(r)` is
+///   undefined (`None`) and the total falls short of 1 by `(r+1) F_{r+1} / n` for each
+///   such `r`; smoothing
+///   the frequency spectrum (Gale & Sampson 1995) removes these gaps.
 /// - **Max-count pathology**: `theta_hat(r_max) = 0` because `F_{r_max+1} = 0`.
 ///   The most frequent items are systematically underweighted.
 ///
@@ -1873,6 +1883,17 @@ mod tests {
     fn from_frequency_counts_rejects_empty() {
         let err = Fingerprint::from_frequency_counts(&[]).unwrap_err();
         assert!(matches!(err, EstimationError::EmptySample));
+    }
+
+    #[test]
+    fn from_frequency_counts_rejects_sample_size_overflow() {
+        // 1 * (MAX/2) + 2 * (MAX/2) exceeds usize::MAX; sample_size() would overflow.
+        let half = usize::MAX / 2;
+        let err = Fingerprint::from_frequency_counts(&[0, half, half]).unwrap_err();
+        assert!(matches!(err, EstimationError::Invalid(_)));
+        // The largest representable sample is still accepted.
+        let fp = Fingerprint::from_frequency_counts(&[0, usize::MAX]).unwrap();
+        assert_eq!(fp.sample_size(), usize::MAX);
     }
 
     // ---- coverage_good_turing ----
