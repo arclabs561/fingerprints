@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `Fingerprint::from_frequency_counts` returns `EstimationError::Invalid`
+  when the sample size `sum_i i * f[i]` overflows `usize`. It accepted such
+  input, and `sample_size()` then panicked in debug builds and wrapped in
+  release builds.
+- The `good_turing_estimate` docs no longer claim the normalization identity
+  holds for all fingerprints: it fails when some `F_r = 0` below the largest
+  count, where `theta_hat(r)` is undefined.
+
 ## [0.2.2] - 2026-11-03
 
 ### Added
