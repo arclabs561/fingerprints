@@ -27,7 +27,7 @@ lp = ["dep:minilp"]
 
 [dependencies]
 thiserror = "2.0"
-logp = "0.2.0"
+logp = "0.3.1"
 minilp = { version = "0.2", optional = true }
 
 [dev-dependencies]
