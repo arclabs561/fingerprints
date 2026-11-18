@@ -87,6 +87,10 @@ use crate::{EstimationError, Result};
 /// assert!((n_hat - 15.0).abs() < 1e-12);
 /// ```
 pub fn german_tank_unbiased_1_indexed(max_seen: u64, sample_size: u64) -> Result<f64> {
+    german_tank_estimate(u128::from(max_seen), sample_size)
+}
+
+fn german_tank_estimate(max_seen: u128, sample_size: u64) -> Result<f64> {
     if sample_size == 0 {
         return Err(EstimationError::Invalid("sample_size must be >= 1"));
     }
@@ -120,7 +124,7 @@ pub fn german_tank_unbiased_support_size_0_indexed(
     max_seen_0: u64,
     sample_size: u64,
 ) -> Result<f64> {
-    german_tank_unbiased_1_indexed(max_seen_0 + 1, sample_size)
+    german_tank_estimate(u128::from(max_seen_0) + 1, sample_size)
 }
 
 /// Expected draws to collect all `n` coupons (uniform, with replacement).
@@ -178,17 +182,36 @@ pub fn coupon_collector_expected_draws(n: u64) -> f64 {
 /// ```
 #[must_use]
 pub fn expected_distinct_uniform(n: u64, t: u64) -> f64 {
-    if n == 0 {
+    if n == 0 || t == 0 {
         return 0.0;
     }
     let n_f = n as f64;
-    let p_not_seen = (1.0 - 1.0 / n_f).powf(t as f64);
-    n_f * (1.0 - p_not_seen)
+    let log_p_not_seen = (t as f64) * (-1.0 / n_f).ln_1p();
+    -n_f * log_p_not_seen.exp_m1()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_draws_from_large_support() {
+        for n in [1_u64 << 54, u64::MAX] {
+            assert_eq!(expected_distinct_uniform(n, 1), 1.0);
+            assert!((expected_distinct_uniform(n, 1000) - 1000.0).abs() < 1e-9);
+        }
+        assert_eq!(expected_distinct_uniform(1, 0), 0.0);
+        assert_eq!(expected_distinct_uniform(1, 1000), 1.0);
+    }
+
+    #[test]
+    fn max_zero_indexed_serial() {
+        assert_eq!(
+            german_tank_unbiased_support_size_0_indexed(u64::MAX, 1).unwrap(),
+            2.0_f64.powi(65)
+        );
+        assert!(german_tank_unbiased_support_size_0_indexed(u64::MAX, 0).is_err());
+    }
 
     #[test]
     fn coupon_collector_small() {
