@@ -74,7 +74,7 @@ use crate::{EstimationError, Result};
 ///
 /// # Domain
 ///
-/// - `sample_size` must be at least 1.
+/// - `sample_size` must be between 1 and `max_seen` (sampling without replacement).
 /// - `max_seen` must be at least 1 (1-indexed serial numbers).
 ///
 /// # Examples
@@ -97,6 +97,11 @@ fn german_tank_estimate(max_seen: u128, sample_size: u64) -> Result<f64> {
     if max_seen == 0 {
         return Err(EstimationError::Invalid(
             "max_seen must be >= 1 (1-indexed)",
+        ));
+    }
+    if u128::from(sample_size) > max_seen {
+        return Err(EstimationError::Invalid(
+            "sample_size exceeds the number of possible distinct observations",
         ));
     }
     let m = max_seen as f64;
@@ -202,6 +207,17 @@ mod tests {
         }
         assert_eq!(expected_distinct_uniform(1, 0), 0.0);
         assert_eq!(expected_distinct_uniform(1, 1000), 1.0);
+    }
+
+    #[test]
+    fn sample_without_replacement_must_fit_below_the_observed_maximum() {
+        assert!(german_tank_unbiased_1_indexed(1, 2).is_err());
+        assert!(german_tank_unbiased_support_size_0_indexed(0, 2).is_err());
+        assert_eq!(german_tank_unbiased_1_indexed(2, 2).unwrap(), 2.0);
+        assert_eq!(
+            german_tank_unbiased_support_size_0_indexed(1, 2).unwrap(),
+            2.0
+        );
     }
 
     #[test]
